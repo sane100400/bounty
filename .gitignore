@@ -53,3 +53,12 @@ venv/
 # ─── Foundry ──────────────────────────────────────────────────────
 out/
 cache/
+poc-forge/lib/
+
+# ─── Claude local state ──────────────────────────────────────────
+.claude/
+
+# ─── Harness runtime outputs ─────────────────────────────────────
+harness/hypotheses/
+harness/last_verify.json
+harness/__pycache__/

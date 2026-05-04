@@ -1,0 +1,151 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VulnerabilityHypothesis",
+  "description": "Knowdit-style three-state spec + ReX class-level invariant binding. One file per candidate hypothesis. Persisted to disk so LLM context per call stays scoped.",
+  "type": "object",
+  "required": ["id", "vuln_class", "target", "initial_state", "pre_vuln_state", "post_vuln_state", "invariant"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable slug, e.g. 'rentry-vault-deposit-001'. Used as test name and filename."
+    },
+    "vuln_class": {
+      "type": "string",
+      "enum": [
+        "reentrancy",
+        "access_control",
+        "arithmetic",
+        "oracle_manipulation",
+        "flashloan_pricing",
+        "donation_share_inflation",
+        "callback_state_corruption",
+        "signature_replay",
+        "dos_griefing",
+        "init_unprotected",
+        "upgradeability_storage",
+        "rounding_dust_drain",
+        "invariant_break_other"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "required": ["contract", "function"],
+      "properties": {
+        "contract": { "type": "string" },
+        "function": { "type": "string", "description": "Signature, e.g. 'deposit(uint256,address)'" },
+        "file": { "type": "string" },
+        "lines": { "type": "string", "description": "L42-L78" }
+      }
+    },
+    "initial_state": {
+      "type": "object",
+      "description": "Knowdit InitialState — translated to Foundry setUp(). Concrete addresses, balances, deployments.",
+      "properties": {
+        "fork": {
+          "type": "object",
+          "properties": {
+            "chain": { "type": "string", "default": "mainnet" },
+            "block": { "type": "integer" },
+            "rpc": { "type": "string" }
+          }
+        },
+        "actors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "role": { "type": "string", "enum": ["attacker", "victim", "admin", "user", "oracle", "whale"] },
+              "starting_balance_wei": { "type": "string" },
+              "starting_tokens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "token": { "type": "string" },
+                    "amount": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "deployments": {
+          "type": "array",
+          "items": { "type": "string", "description": "Either 'addr:0x...' (existing on fork) or 'deploy:ContractName(args)'" }
+        }
+      }
+    },
+    "pre_vuln_state": {
+      "type": "object",
+      "description": "Conditions that must hold before exploit step runs. Translated to require() in attack flow.",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "items": { "type": "string", "description": "Solidity boolean expression, e.g. 'pool.totalLiquidity() > 1e18'" }
+        },
+        "setup_calls": {
+          "type": "array",
+          "items": { "type": "string", "description": "Solidity statement, e.g. 'pool.deposit(1e18)'" }
+        }
+      }
+    },
+    "post_vuln_state": {
+      "type": "object",
+      "description": "Expected state after exploit. Class-level invariant (ReX style) is preferred over per-contract spec.",
+      "required": ["class_invariant"],
+      "properties": {
+        "class_invariant": {
+          "type": "string",
+          "description": "ReX-style class-level invariant tag — chooses universal oracle from invariants/ library",
+          "enum": [
+            "attacker_eth_increased",
+            "attacker_token_increased",
+            "victim_token_drained",
+            "share_price_collapsed",
+            "share_price_inflated",
+            "supply_inflated",
+            "permission_acquired",
+            "function_unexpectedly_callable",
+            "invariant_violated_custom"
+          ]
+        },
+        "custom_assertion": {
+          "type": "string",
+          "description": "Used only when class_invariant=invariant_violated_custom. Raw Solidity expression for assertTrue/assertGt."
+        },
+        "min_profit_wei": {
+          "type": "string",
+          "description": "Threshold for econ-check gate. Default 1e16 (0.01 ETH) for bounty-grade."
+        }
+      }
+    },
+    "invariant": {
+      "type": "object",
+      "description": "Optional symbolic-execution gate (Halmos)",
+      "properties": {
+        "halmos_check": { "type": "boolean", "default": false },
+        "property_function": { "type": "string", "description": "Name of check_*() function in test contract for Halmos to verify" }
+      }
+    },
+    "attack_steps": {
+      "type": "array",
+      "description": "High-level steps; LLM expands each to Solidity in PoC drafting stage.",
+      "items": { "type": "string" }
+    },
+    "preconditions": {
+      "type": "array",
+      "description": "External assumptions: 'attacker has 10 ETH', 'oracle reports stale price', etc.",
+      "items": { "type": "string" }
+    },
+    "triage": {
+      "type": "object",
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "duplicates": { "type": "array", "items": { "type": "string" } },
+        "drop_reason": { "type": "string", "description": "Set when this hypothesis is dropped — fed back into next iteration" },
+        "status": { "type": "string", "enum": ["candidate", "in_poc", "verified", "dropped", "duplicate"] }
+      }
+    }
+  }
+}

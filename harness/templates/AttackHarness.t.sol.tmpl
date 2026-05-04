@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
+
+// =====================================================================
+// AttackHarness — universal Foundry harness for an LLM-generated PoC.
+// Ported from ReX templated test harness + Knowdit three-state spec.
+// =====================================================================
+//
+// Filling instructions for the LLM:
+//   {{HYPOTHESIS_ID}}      — replaces test name (testPoC_<id>)
+//   {{IMPORTS}}            — interface imports for victim contracts
+//   {{FORK_BLOCK}}         — block number (fork pinned for determinism)
+//   {{SETUP_BODY}}         — Initial State translation (deploy/label/deal)
+//   {{ATTACKER_ADDR}}      — vm.addr label or deployed Attacker contract
+//   {{PRE_REQUIRES}}       — Pre-Vuln State require() assertions
+//   {{ATTACK_BODY}}        — exploit steps (the real PoC)
+//   {{INVARIANT_CHECK}}    — single ClassInvariants call (e.g. assertAttackerEthIncreased(...))
+//   {{MIN_PROFIT_WEI}}     — econ-check threshold
+
+import {Test} from "forge-std/Test.sol";
+import {ClassInvariants} from "./Invariants.sol";
+{{IMPORTS}}
+
+contract AttackHarness_{{HYPOTHESIS_ID}} is ClassInvariants {
+    address attacker;
+    uint256 attackerEthBefore;
+    uint256 snapshotId;
+
+    function setUp() public {
+        // === Initial State (Knowdit) ===
+        vm.createSelectFork(vm.rpcUrl("mainnet"), {{FORK_BLOCK}});
+        attacker = makeAddr("attacker");
+        vm.deal(attacker, 100 ether);
+        {{SETUP_BODY}}
+        attackerEthBefore = attacker.balance;
+        snapshotId = vm.snapshot();
+    }
+
+    function testPoC_{{HYPOTHESIS_ID}}() public {
+        // === Pre-Vuln State assertions ===
+        {{PRE_REQUIRES}}
+
+        // === Attack ===
+        vm.startPrank(attacker);
+        {{ATTACK_BODY}}
+        vm.stopPrank();
+
+        // === Post-Vuln State invariant (class-level oracle) ===
+        {{INVARIANT_CHECK}}
+    }
+
+    /// @notice Halmos symbolic check companion. Skipped by `forge test`.
+    function check_{{HYPOTHESIS_ID}}() public view {
+        // Optional: symbolic property — Halmos will explore.
+        // Override only when hypothesis.invariant.halmos_check=true.
+        assert(true);
+    }
+}

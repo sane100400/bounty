@@ -1,0 +1,58 @@
+# Held-out dataset for memorization-resistant absolute-score reporting.
+# All cases must postdate Claude Opus 4.7's knowledge cutoff (Jan 2026).
+#
+# Sources to populate:
+#   - Immunefi public disclosures with Q1-Q2 2026 incident date
+#   - Cantina contests started 2026-02 or later (waiting period for results)
+#   - Sherlock contests with 2026 escalation period closed
+#   - Code4rena finalized 2026 contests
+#
+# Schema for each case:
+#   case_id           — stable slug (e.g. immunefi-2026q1-protocol-bug)
+#   incident_date     — YYYY-MM-DD (must be ≥2026-02-01 to clear cutoff buffer)
+#   project_dir       — relative path under bounty/holdout-sources/
+#   ground_truth      — list of {file, lines, vuln_class, severity}
+#   base_ref          — git ref for diff harness (post-audit commit)
+#   notes             — context (e.g. "fork at block X", "uses chainlink oracle")
+#
+# Target size: 15-25 cases for first round. Budget allows ~$50-100 evaluation
+# per cell (per A1's $1.22/run × 25 cases × 8 cells × 2 conditions ≈ $500).
+#
+# IMPORTANT: when adding a case, verify NO write-up of the bug exists in
+# pretraining-window data. A bug disclosed 2026-04 but discussed in a
+# 2025-12 audit report is still contaminated.
+
+cutoff_date: "2026-02-01"  # incidents on/after this are eligible
+target_size: 20
+populated: []  # filled in iteratively
+
+# === Candidates pending verification ===
+# (move to populated[] after manual verification of post-cutoff disclosure)
+candidates:
+  - case_id: pending-immunefi-2026q1-001
+    source: immunefi.com
+    incident_date: TBD
+    notes: "scrape via Immunefi public bounty board, filter disclosure_date ≥ 2026-02-01"
+
+  - case_id: pending-cantina-2026q1-001
+    source: cantina.xyz/competitions
+    incident_date: TBD
+    notes: "list contests with end_date ≥ 2026-03-01, pick high-paying findings"
+
+  - case_id: pending-sherlock-2026-001
+    source: audits.sherlock.xyz
+    incident_date: TBD
+    notes: "filter by escalation_period_end ≥ 2026-03-01"
+
+  - case_id: pending-code4rena-2026-001
+    source: code4rena.com
+    incident_date: TBD
+    notes: "look for contests with public reports posted after 2026-02-01"
+
+# === Population script (TODO) ===
+# bench/ablation/holdout_populate.py will:
+#   1. Hit each source's public API/scraper
+#   2. Filter disclosure_date >= cutoff_date
+#   3. Clone source repo + pin commit
+#   4. Extract ground truth from public report
+#   5. Write into populated[] section here
