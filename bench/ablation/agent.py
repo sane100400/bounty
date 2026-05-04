@@ -197,6 +197,42 @@ def _allowed_tools_for_cell() -> list[str]:
     return base
 
 
+def _coverage_preamble(project: Path) -> str:
+    """List in-scope .sol files with size, so the agent has a concrete
+    'attack surface inventory' it must work through. Solves the
+    "lost in 26 turns on 77-file codebase" problem from docs/09."""
+    files = []
+    for p in project.rglob("*.sol"):
+        s = str(p)
+        if any(x in s for x in ("/lib/", "/out/", "/cache/", "/node_modules/",
+                                 "/.recon/", "/test/", "_legacy_disabled/",
+                                 "forge-std/", "@openzeppelin/", "solmate/",
+                                 "@uniswap/")):
+            continue
+        try:
+            loc = sum(1 for _ in p.open(errors="ignore"))
+        except Exception:
+            continue
+        files.append((str(p.relative_to(project)), loc))
+    files.sort(key=lambda x: -x[1])
+    if not files:
+        return ""
+    total_files = len(files)
+    total_loc = sum(f[1] for f in files)
+    head = files[:30]  # show top-30 by LOC; the rest get a tail mention
+    rows = "\n".join(f"  {p}  ({loc} LOC)" for p, loc in head)
+    rest_note = ""
+    if total_files > 30:
+        rest_note = f"\n  ... and {total_files - 30} smaller files (read after these)"
+    return (
+        f"## In-scope source inventory ({total_files} .sol files, "
+        f"{total_loc:,} LOC total)\n"
+        f"Plan coverage from this list. Larger files first; smaller ones often "
+        f"contain helper logic with subtle invariants. Track which you've read.\n\n"
+        f"{rows}{rest_note}\n\n"
+    )
+
+
 def _scone_scaffold(project: Path) -> str:
     """If <project> looks like a Sourcify-fetched src/ tree (no foundry.toml),
     run scaffold_forge to add minimal Foundry plumbing so verify.py works.
@@ -305,18 +341,38 @@ def run_agent_cli(project: Path, case_id: str, budget_iterations: int = 5) -> di
 
     system = _load_prompt(project, case_id)
     scone_preamble = _scone_scaffold(project)
+    coverage_preamble = _coverage_preamble(project)
     mcga_preamble = _mcga_preamble(project)
     kg_preamble = _kg_preamble(project)
+    max_usd = float(os.environ.get("HARNESS_MAX_BUDGET_USD", "5"))
     user_msg = (
         f"{scone_preamble}"
+        f"{coverage_preamble}"
         f"{mcga_preamble}"
         f"{kg_preamble}"
+        f"## Task\n"
         f"Find vulnerabilities in the Solidity project at {project}.\n"
         f"For each verified finding, write the hypothesis JSON to "
         f"{findings_dir}/{case_id}-N.json (N = 1, 2, ...) following "
-        f"harness/schemas/hypothesis.schema.json.\n"
-        f"Budget: {budget_iterations} verification iterations total. Stop when "
-        f"budget exhausted or no more candidates."
+        f"harness/schemas/hypothesis.schema.json.\n\n"
+        f"## Budget — USE IT\n"
+        f"You have **{budget_iterations} verification iterations** and "
+        f"**${max_usd:.0f} USD** of LLM spend available.\n"
+        f"- Average prior baseline used only 15-26 turns and $1-2 of $20 cap.\n"
+        f"- Stopping early because 'I think I'm done' is a documented failure "
+        f"mode. The 26-turn 0-finding baseline on Fluid DEX gave up after "
+        f"reading <30% of in-scope files.\n"
+        f"- Do NOT stop until: (a) you have ≥3 *verified* findings (not just "
+        f"  candidates) OR (b) you've read ≥80% of files in the inventory above "
+        f"  AND submitted ≥1 candidate per major attack-surface category MCGA "
+        f"  flagged OR (c) the wall budget is genuinely exhausted.\n"
+        f"- Track progress: at each turn estimate (turns used / {budget_iterations}, "
+        f"  files read / inventory size, candidates submitted, verified count).\n\n"
+        f"## When stuck\n"
+        f"If a hypothesis fails verify.py, read the failure JSON: it names the "
+        f"exact gate (compile/execute/state_delta/econ/dup/halmos) and the "
+        f"shortest fix. Fix, retry. Max 5 retries per hypothesis (A1 diminishing "
+        f"returns). Then move on — do NOT abandon the larger plan.\n"
     )
 
     cmd = [

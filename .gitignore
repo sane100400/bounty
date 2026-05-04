@@ -64,6 +64,5 @@ harness/last_verify.json
 harness/__pycache__/
 
 # ─── Harness KG (cloned + generated) ─────────────────────────────
-harness/kg/defi-hack-labs/
 harness/kg/index.train.json
 harness/kg/index.holdout.json

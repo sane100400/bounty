@@ -19,12 +19,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-DHL = REPO / "harness" / "kg" / "defi-hack-labs" / "src" / "test"
+# Default clone path is OUTSIDE the workspace to prevent the agent from
+# reading holdout PoCs through filesystem access. Override with
+# DEFI_HACK_LABS_DIR env if you've cloned somewhere else.
+DEFAULT_CLONE = Path(os.environ.get(
+    "DEFI_HACK_LABS_DIR",
+    str(Path.home() / ".cache" / "harness" / "defi-hack-labs"),
+))
+DHL = DEFAULT_CLONE / "src" / "test"
 OUT_DIR = REPO / "harness" / "kg"
 
 KEY_INFO_FIELDS = {
@@ -72,7 +81,7 @@ def parse_one(path: Path, month: str) -> dict | None:
         "id": f"{month}__{path.stem}",
         "date": f"{month}-01",  # month precision; pin to first-of-month
         "month": month,
-        "file": str(path.relative_to(REPO)),
+        "file": str(path),
         "name": path.stem.replace("_exp", ""),
     }
     rec.update(parse_keyinfo(text))
@@ -90,10 +99,26 @@ def parse_one(path: Path, month: str) -> dict | None:
     return rec
 
 
+def ensure_clone() -> None:
+    """Auto-clone DeFiHackLabs to DEFAULT_CLONE if missing."""
+    if DHL.is_dir():
+        return
+    DEFAULT_CLONE.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Cloning DeFiHackLabs to {DEFAULT_CLONE} (one-time, ~110 MB)...",
+          file=sys.stderr)
+    subprocess.run(
+        ["git", "clone", "--depth", "1",
+         "https://github.com/SunWeb3Sec/DeFiHackLabs.git",
+         str(DEFAULT_CLONE)],
+        check=True, capture_output=True,
+    )
+
+
 def build(cutoff: str) -> tuple[list, list]:
     train, holdout = [], []
+    ensure_clone()
     if not DHL.is_dir():
-        print(f"ERROR: {DHL} not found — clone DeFiHackLabs first", file=sys.stderr)
+        print(f"ERROR: {DHL} not found after clone attempt", file=sys.stderr)
         sys.exit(2)
 
     for month_dir in sorted(DHL.iterdir()):
