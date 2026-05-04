@@ -197,6 +197,49 @@ def _allowed_tools_for_cell() -> list[str]:
     return base
 
 
+def _mcga_preamble(project: Path) -> str:
+    """When HARNESS_MCGA=1, run sink tagger and inject top external + top
+    internal high-density functions as a focused attack-surface block."""
+    if not os.environ.get("HARNESS_MCGA"):
+        return ""
+    try:
+        sys.path.insert(0, str(REPO / "harness"))
+        from mcga_sinks import build  # type: ignore
+        result = build(project)
+    except Exception as e:
+        return f"(MCGA failed: {type(e).__name__}: {e})\n\n"
+
+    ext = result.get("top_external_functions", [])[:10]
+    intl = result.get("top_internal_callees", [])[:10]
+    if not ext and not intl:
+        return ""
+
+    def _fmt(rows: list[dict]) -> str:
+        out = []
+        for r in rows:
+            sks = ", ".join(sorted(r.get("sinks") or {}))
+            out.append(
+                f"  {r['contract']}.{r['function']}  "
+                f"[{r['visibility']}, {r['file']}:{r['line']}, "
+                f"sinks={r['sink_count']}: {sks}]"
+            )
+        return "\n".join(out)
+
+    return (
+        "## MCGA sink-tagged attack surface (hard-injected, top-10 each)\n"
+        "External / public functions are direct attack entry points. "
+        "Internal callees with high sink density are the **bug-bearing primitives** "
+        "that external callers reach via call graph — trace them back to their "
+        "external entry points.\n\n"
+        f"### Top external/public functions by sink density\n{_fmt(ext)}\n\n"
+        f"### Top internal callees by sink density (call-graph hot spots)\n{_fmt(intl)}\n\n"
+        "Sink categories: external_call, delegatecall, balance_write, share_write, "
+        "supply_write, oracle_read, lp_sync, flash_loan, unchecked_arith, "
+        "transfer_token, fee_on_transfer, approve_inf, tx_origin, block_dep, "
+        "selfdestruct, low_level_send.\n\n"
+    )
+
+
 def _kg_preamble(project: Path) -> str:
     """When HARNESS_KG=1, run KG retrieval and return a preamble block to
     prepend to the user message. Hard-wired so the agent cannot skip it."""
@@ -236,8 +279,10 @@ def run_agent_cli(project: Path, case_id: str, budget_iterations: int = 5) -> di
     before = {p.name for p in findings_dir.glob(f"{case_id}-*.json")}
 
     system = _load_prompt(project, case_id)
+    mcga_preamble = _mcga_preamble(project)
     kg_preamble = _kg_preamble(project)
     user_msg = (
+        f"{mcga_preamble}"
         f"{kg_preamble}"
         f"Find vulnerabilities in the Solidity project at {project}.\n"
         f"For each verified finding, write the hypothesis JSON to "

@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: MIT
+// Halmos symbolic property template.
+//
+// Usage: agent fills in the placeholders, writes to
+//   poc-forge/test/HalmosProperty_<HYPOTHESIS_ID>.t.sol
+// Then sets in the hypothesis JSON:
+//   "invariant": {
+//     "halmos_check": true,
+//     "property_function": "check_<INVARIANT_NAME>"
+//   }
+// verify.py will run `halmos --function check_<NAME>` automatically.
+//
+// Halmos rules:
+//  - The function body must be deterministic given symbolic inputs
+//  - Use vm.assume() to constrain inputs to the realistic range
+//  - Avoid loops with symbolic bounds; halmos unrolls and bounds matter
+//  - One assertion per check_* — multiple assertions hide which failed
+//
+// Three common invariant patterns:
+//
+//   1. CONSERVATION:  no operation can mint shares > assets in
+//        prev = vault.totalAssets();
+//        vault.deposit{...}(amount);
+//        assert(vault.totalAssets() <= prev + amount);
+//
+//   2. ACCESS-CONTROL: non-owner cannot mutate sensitive state
+//        vm.assume(caller != owner);
+//        vm.prank(caller);
+//        vm.expectRevert();
+//        target.privileged();
+//
+//   3. INVARIANT-BREAK: state X never satisfies condition Y after op
+//        target.action(input);
+//        assert(!isLiquidatable(victim));   // never spurious-liquidatable
+
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+
+// import "<PATH/TO/TARGET>.sol";
+
+contract HalmosProperty_HYPOTHESIS_ID is Test {
+    // <DECLARATIONS> (target contracts, mocks, constants)
+
+    function setUp() public {
+        // <SETUP> (deploy + initial state — no fork, halmos runs purely symbolic)
+    }
+
+    /// @notice <ONE-SENTENCE INVARIANT>
+    /// @dev verify.py expects function name `check_<INVARIANT_NAME>` matching
+    ///      hypothesis.invariant.property_function exactly.
+    function check_INVARIANT_NAME(uint256 a, address caller) external {
+        vm.assume(a > 0 && a < type(uint128).max);
+        vm.assume(caller != address(0));
+
+        // <SYMBOLIC ATTACK SEQUENCE>
+
+        // <ASSERTION — single, captures the invariant>
+        // assert(...);
+    }
+}

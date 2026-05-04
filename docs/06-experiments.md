@@ -68,6 +68,42 @@ Source materialized via Sourcify (full match on BSC).
 
 ---
 
+## 4) LAXO holdout — FULL v2 stack (KG + MCGA hard-wired)
+
+After hard-wiring both KG and MCGA into `agent.py` preamble:
+
+| | V1 NO-KG | V2 KG-prompt-only | **V3 KG+MCGA hard-wired** |
+|---|---|---|---|
+| Cost | $1.43 | $1.17 | $1.33 |
+| Wall | 331s | 268s | **296s** |
+| Turns | 15 | 13 | 14 |
+| Findings (candidates) | 3 | 2 | **3** |
+| KG retrieval injected | n/a | 0 (ignored) | ✅ 5 incidents (Sushi_Badger_Digg top-1) |
+| MCGA injection | n/a | n/a | ✅ top-10 ext + top-10 internal sinks |
+| Agent cited KG IDs in rationale | n/a | n/a | ✅ "KG seed: Sushi_Badger_Digg confirms direct-donation manipulation of pair invariants is a recurring pattern" |
+
+**Key change in finding quality** (V3 finding #3 verbatim):
+> "KG retrieval did not return a directly analogous fee-rounding incident, so this is a code-only finding with no historical anchor."
+
+The agent now *self-calibrates confidence based on KG support*. Without
+KG, every hypothesis looks equally novel; with KG, the agent
+distinguishes "we've seen this exact pattern hit production for $X" from
+"speculative new code-only finding." That distinction is the entire
+point of the harness.
+
+**Closest to ground truth**: V3 finding #2 (`invariant_break_other` @
+`_transfer`) — matches the actual `_transfer → pair.sync()` lp_sync
+exploit. MCGA had explicitly flagged `_transfer` in `top_internal_callees`
+with `lp_sync` sink class, which the agent picked up.
+
+**Caveat**: verify.py 6-gate did not run (the Sourcify-extracted source
+is not a Foundry project — no `foundry.toml`). To complete the loop,
+SCONE-mode cases need a project scaffolder that writes a minimal
+`foundry.toml` + remappings around fetched source. Tracked as next-step
+build item.
+
+---
+
 ## Reproduce these experiments
 
 ```bash

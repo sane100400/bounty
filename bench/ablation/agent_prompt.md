@@ -26,6 +26,11 @@ files FIRST before opening any source:
 - `inscope.json` — file list with LOC. Plan coverage from this.
 - `storage.json` — per-contract storage layout. Use to spot collisions, packing.
 - `entry_points.json` — externally-callable functions per contract. Attack surface.
+- `mcga_sinks.json` — per-function sink-tagged attack surface (MLLA MCGA).
+  Use `top_external_functions` for direct attack entry points and
+  `top_internal_callees` for high-density bug-bearing primitives that you
+  trace back to their external callers. Sink categories include lp_sync,
+  flash_loan, oracle_read, delegatecall, balance_write, fee_on_transfer.
 - `diff.patch` — post-audit changes (if applicable). Newest code = highest priority.
 - `meta.json` — manifest + tool versions.
 ### {{ENDIF}}
@@ -76,6 +81,16 @@ You have access to two oracle libraries — import them in PoC tests:
 ### {{IF HARNESS_HALMOS}}
 - `halmos_check(test_contract, function)` — symbolic verification of a property
   function. Use to PROVE invariants, not just test them.
+
+**Template**: `harness/templates/HalmosProperty.t.sol.tmpl`. Copy to
+`poc-forge/test/HalmosProperty_<id>.t.sol`, fill the `check_<NAME>` body,
+and in your hypothesis JSON set:
+```json
+"invariant": {"halmos_check": true, "property_function": "check_<NAME>"}
+```
+The verify.py halmos gate runs automatically when `halmos_check=true`.
+Use halmos when the invariant is universal (∀ inputs) and the state
+explosion is bounded — symbolic proof beats fuzzing for those cases.
 ### {{ENDIF}}
 
 ### {{IF HARNESS_ECHIDNA}}

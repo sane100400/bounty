@@ -309,6 +309,22 @@ def step_diff(project: Path, out_dir: Path, base_ref: str | None) -> Step:
     return Step("diff", ok=True, detail=f"{len(out.splitlines())} lines of diff")
 
 
+def step_mcga_sinks(project: Path, out_dir: Path) -> Step:
+    """MLLA-style MCGA: tag every function with attack-surface sink categories,
+    rank externals by sink density, surface high-density internal callees."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from mcga_sinks import build  # type: ignore
+        result = build(project)
+        (out_dir / "mcga_sinks.json").write_text(json.dumps(result, indent=2))
+        return Step("mcga_sinks", ok=True,
+                    detail=f"{result['files_scanned']} files, "
+                           f"{len(result['top_external_functions'])} ext sinks, "
+                           f"{len(result['top_internal_callees'])} int sinks")
+    except Exception as e:
+        return Step("mcga_sinks", ok=False, detail=f"{type(e).__name__}: {e}")
+
+
 def step_entry_points_forge(project: Path, out_dir: Path) -> Step:
     """
     Extract externally-callable functions per contract via `forge inspect <c> abi`.
@@ -366,6 +382,7 @@ def main(argv: list[str]) -> int:
     steps.append(step_inscope(project, out_dir))
     steps.append(step_storage_layouts(project, out_dir))      # forge build — also produces ABI artifacts
     steps.append(step_entry_points_forge(project, out_dir))   # ABI → external/public funcs (no slither)
+    steps.append(step_mcga_sinks(project, out_dir))           # MLLA MCGA — sink-tagged attack surface
     steps.append(step_diff(project, out_dir, args.base_ref))
 
     # Layer 2 (opt-in legacy bulk slither pass — XINT-style on-demand is preferred)

@@ -65,6 +65,6 @@ multi-agent splitting (which we measured as a regression).
 | DeFiHackLabs KG indexer + retrieval | ✅ 682 incidents indexed, 6 holdout | [07](07-defihacklabs-kg.md) |
 | KG hard-wired into agent system prompt | ✅ implemented (`HARNESS_KG=1`) | [07](07-defihacklabs-kg.md) |
 | KG lift measurement on holdout | 🟡 1 data point (LAXO), inconclusive — see [06](06-experiments.md) | |
-| MCGA sink-tagger | ❌ not built (next biggest lever) | [05](05-v2-blueprint.md) |
-| Halmos parallel gate | ❌ not built | [05](05-v2-blueprint.md) |
+| MCGA sink-tagger | ✅ built (`harness/mcga_sinks.py`), wired into recon_pack + agent.py preamble | [05](05-v2-blueprint.md) |
+| Halmos parallel gate | ✅ verify.py gate exists; halmos installed; template at `harness/templates/HalmosProperty.t.sol.tmpl`; smoke test passing | [05](05-v2-blueprint.md) |
 | BCDA/BGA prompt split | ❌ **dropped** (measured regression) | [06](06-experiments.md) |
