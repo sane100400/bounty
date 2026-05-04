@@ -197,6 +197,38 @@ def _allowed_tools_for_cell() -> list[str]:
     return base
 
 
+def _kg_preamble(project: Path) -> str:
+    """When HARNESS_KG=1, run KG retrieval and return a preamble block to
+    prepend to the user message. Hard-wired so the agent cannot skip it."""
+    if not os.environ.get("HARNESS_KG"):
+        return ""
+    try:
+        # Extract interface symbols from project sources (grep-based, fast)
+        r = subprocess.run(
+            ["grep", "-rho", "--include=*.sol", "-E", r"\bI[A-Z][A-Za-z0-9_]+\b", str(project)],
+            capture_output=True, text=True, timeout=30,
+        )
+        ifaces = sorted({s.strip() for s in r.stdout.splitlines() if len(s.strip()) > 2})[:60]
+        if not ifaces:
+            return ""
+        sys.path.insert(0, str(REPO / "harness" / "kg"))
+        from retrieve import retrieve  # type: ignore
+        hits = retrieve({"interfaces": ifaces}, top_k=5)
+        if not hits:
+            return ""
+        return (
+            "## DeFiHackLabs KG retrieval (hard-injected, top-5 by interface Jaccard)\n"
+            "These are past incidents whose external interface set overlaps with "
+            "the current target. Treat each as a *candidate hypothesis seed* — "
+            "verify or rule out the corresponding pattern against this code. "
+            "Cite the incident `id` in your hypothesis `rationale`.\n\n"
+            f"```json\n{json.dumps(hits, indent=2)}\n```\n\n"
+            f"Target's extracted interface set ({len(ifaces)}): {', '.join(ifaces[:30])}\n\n"
+        )
+    except Exception as e:
+        return f"(KG retrieval failed: {type(e).__name__}: {e})\n\n"
+
+
 def run_agent_cli(project: Path, case_id: str, budget_iterations: int = 5) -> dict:
     started = time.time()
     findings_dir = HARNESS / "hypotheses"
@@ -204,7 +236,9 @@ def run_agent_cli(project: Path, case_id: str, budget_iterations: int = 5) -> di
     before = {p.name for p in findings_dir.glob(f"{case_id}-*.json")}
 
     system = _load_prompt(project, case_id)
+    kg_preamble = _kg_preamble(project)
     user_msg = (
+        f"{kg_preamble}"
         f"Find vulnerabilities in the Solidity project at {project}.\n"
         f"For each verified finding, write the hypothesis JSON to "
         f"{findings_dir}/{case_id}-N.json (N = 1, 2, ...) following "
