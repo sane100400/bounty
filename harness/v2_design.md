@@ -93,7 +93,7 @@ that is the operational ceiling this design targets.
 | # | Component | Expected lift | Eng effort | Build order |
 |---|---|---|---|---|
 | 1 | KG built from **DeFiHackLabs** (cutoff-split) — see §KG below | +60pp recall | medium | **first** |
-| 2 | BCDA/BGA split with hypothesis schema enforcement | +15-30% F1 | low | **second** (cheapest big win) |
+| ~~2~~ | ~~BCDA/BGA split~~ — DROPPED; multi-bug eval shows regression. See feedback_split_multibug_result.md | -19% cost, 0 recall | n/a | n/a |
 | 3 | MCGA sink tagger | +10-20% recall | medium | third |
 | 4 | Halmos parallel gate | +5-15% (catches what fuzz misses) | medium | fourth |
 | 5 | Echidna parallel gate | +5-10% | medium | fifth |
