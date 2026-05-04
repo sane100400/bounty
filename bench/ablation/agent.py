@@ -338,8 +338,12 @@ def run_agent(project: Path, case_id: str, budget_iterations: int = 5) -> dict:
 
 
 def _load_prompt(project: Path, case_id: str) -> str:
-    """Build the system prompt by expanding {{IF HARNESS_X}} blocks per env."""
-    template = (REPO / "bench" / "ablation" / "agent_prompt.md").read_text()
+    """Build the system prompt by expanding {{IF HARNESS_X}} blocks per env.
+
+    HARNESS_SPLIT=1 → use the BCDA/BGA two-phase prompt (v2 H2).
+    """
+    fname = "agent_prompt_split.md" if os.environ.get("HARNESS_SPLIT") else "agent_prompt.md"
+    template = (REPO / "bench" / "ablation" / fname).read_text()
     # Strip the {{IF X}}...{{ENDIF}} blocks if X is not set
     import re
     def _replace(m):
