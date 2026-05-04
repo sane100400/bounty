@@ -1,0 +1,403 @@
+{
+  "case_id": "big_fluid_full",
+  "mode": "claude-cli",
+  "model": null,
+  "stub": false,
+  "tool_calls": 13,
+  "turns": 13,
+  "hypotheses": [
+    {
+      "id": "big_fluid_full-1",
+      "vuln_class": "callback_state_corruption",
+      "target": {
+        "contract": "FluidDexT1",
+        "function": "swapInWithCallback(bool,uint256,uint256,address)",
+        "file": "contracts/protocols/dex/poolT1/coreModule/core/main.sol",
+        "lines": "L49-L357"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexT1 instance>",
+          "addr:<FluidLiquidity>",
+          "deploy:MaliciousCallbackContract"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "DEX is unpaused (dexVariables2 high bit == 0)",
+          "Both smart-collateral and smart-debt pools are enabled",
+          "dexVariables (last-stored swap price/oracle slot) is at attacker-favorable boundary"
+        ],
+        "setup_calls": [
+          "attacker funds MaliciousCallbackContract with sufficient tokenIn",
+          "attacker pre-positions a perfect-deposit position so that subsequent _withdrawPerfect / borrowPerfect path is reachable from the callback"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertGt(IERC20(tokenOut).balanceOf(attacker) - tokenInSpent_in_tokenOut_units, 1e16);",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker calls FluidDexT1.swapInWithCallback(...) from MaliciousCallbackContract.",
+        "Inside _swapIn, after price/reserves are computed from current dexVariables but BEFORE dexVariables are written back via _updateOracle (line ~354), the dex calls LIQUIDITY.operate which triggers a liquidityCallback on the dex; the dex then invokes IDexCallback(msg.sender).dexCallback(token_, amount_) on the attacker contract to pull tokenIn.",
+        "At callback time, the dex has not yet updated dexVariables for this trade. Attacker re-enters via a different external entry \u2014 either (a) FluidDexT1.depositPerfect / borrowPerfect (which routes through PERFECT_OPERATIONS_AND_SWAP_OUT_IMPLEMENTATION via _spell delegatecall and may share the same dexVariables read), or (b) another swap path that uses the stale pex_ snapshot.",
+        "If the inner state read happens against pre-trade reserves but trades settle against post-trade liquidity balances, attacker pays old-price for a portion already locked in flight \u2014 extracting price/exchange-price difference.",
+        "The same callback entry-point is also reachable mid-flight in swapOutWithCallback via the same _spell route; combined with the dexCallback pulling tokens, attacker can momentarily owe tokens it has not transferred, expanding the inconsistent-state window."
+      ],
+      "preconditions": [
+        "Attacker has tokenIn equal to required amountIn",
+        "Pool reserves are large enough that an in-flight swap is meaningful relative to dexVariables drift"
+      ],
+      "triage": {
+        "score": 0.45,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration (15-iter budget; mainnet-fork PoC against full Fluid stack would consume ~all of it). Rationale: dex calls IDexCallback(msg.sender).dexCallback during _swapIn before _updateOracle writes the post-trade dexVariables. Two LIQUIDITY.operate calls are made in sequence; the first one's liquidityCallback yields control to the dex and then to msg.sender. The 'reentrancy bit' pattern visible in vaultT1.liquidate (vaultVariables & 1) is the canonical lock used in this codebase, but FluidDexT1._swapIn does not exhibit a similar guard at the entry point \u2014 instead relying on dexVariables only being committed at the end, which is the pattern that has historically caused mid-flight oracle/state bugs (e.g., curve-style read-only reentrancy). Needs deeper trace through PERFECT_OPERATIONS_AND_SWAP_OUT_IMPLEMENTATION._spell and a PoC that exploits stale pex_ snapshot. KG seed: BNO_exp (2023-07) \u2014 interface-overlap match (IERC20/IERC721) plus general callback-during-state pattern. MCGA: dexCallback ranks #6 by sink density with combined block_dep + transfer_token + unchecked_arith sinks."
+      }
+    },
+    {
+      "id": "big_fluid_full-2",
+      "vuln_class": "oracle_manipulation",
+      "target": {
+        "contract": "DexPricesAndExchangePrices / CoreHelpers",
+        "function": "_calcRangeShifting / _updateOracle / centerPrice()",
+        "file": "contracts/protocols/dex/poolT1/coreModule/helpers/coreHelpers.sol",
+        "lines": "L24-L48 (interface), L798+ (_updateOracle)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexT1 instance>",
+          "deploy:MaliciousCenterPriceContract implementing ICenterPrice.centerPrice() returning attacker-controlled value"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "DEX has a non-zero centerPriceContract configured in dexVariables2 (i.e., extracted external center-price source is enabled)",
+          "Range shifting is currently active (rangeShift_ has nonzero startTimeStamp_/shiftDuration_)",
+          "block.timestamp is near the boundary (startTimeStamp_ + shiftDuration_) of the active shift"
+        ],
+        "setup_calls": [
+          "attacker observes that dexVariables2 references an external ICenterPrice contract whose price is permitted to drift",
+          "attacker times tx so that (startTimeStamp_ + shiftDuration_) < block.timestamp by a small delta"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "share_price_inflated",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Step 1: monitor rangeShift slot. When (startTimeStamp_ + shiftDuration_) just crosses block.timestamp, _calcRangeShifting takes the 'shifting fully done' branch and applies the target upperRange/lowerRange in full \u2014 but only on the next state-mutating call.",
+        "Step 2: in the same block (or via a flashloan), call swapIn at the boundary so that pex_ (PricesAndExchangePrices) is computed using the just-finalized range. Because _calcShiftingDone uses linear `((diff_ * timePassed_) / shiftDuration_)` integer division, on the boundary block the value snaps abruptly from interpolated to final without a smoothing window.",
+        "Step 3: combine with a center-price contract whose value moves freely \u2014 _updateOracle commits a new price based on this jump. The next observer of dexVariables (e.g. liquidations or downstream resolvers reading via DexT1) sees a price that moved more in 1 block than the shift duration was supposed to allow.",
+        "Step 4: on the post-jump block, attacker's pre-positioned LP shares or perfect-deposit position is redeemable at the inflated post-jump price; the symmetric victim is anyone whose collateral is valued via the dex price (FluidVaults using DexOracle implementations)."
+      ],
+      "preconditions": [
+        "ICenterPrice contract is referenced via dexVariables2 (configurable per-pool by admin)",
+        "An active range/threshold shift exists at attack time",
+        "Attacker has access to flashloan liquidity to amplify the boundary-block opportunity"
+      ],
+      "triage": {
+        "score": 0.4,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: _calcShiftingDone uses linear integer interpolation `current_ = old_ + ((diff_ * timePassed_) / shiftDuration_)` which is monotonic but discontinuous at the boundary because the 'shifting done' branch (line 73-80) snaps the dexVariables2 storage in one shot. Combined with an external ICenterPrice contract that the dex trusts without staleness checks (the interface only exposes `centerPrice()` view, no timestamp or signed bound), a malicious or compromised admin-configured center-price contract can return values that, in the boundary block, get committed to dexVariables via _updateOracle without being smoothed against a previous-block bound. MCGA: _calcRangeShifting tops the external sink-density list with 23 sinks (block_dep + unchecked_arith) \u2014 the block_dep tags are exactly these timestamp-boundary reads. KG seed: not a direct DeFiHackLabs match, but pattern resembles oracle-trust assumption attacks generally found in the IChainlinkAggregatorV3 interface family (target imports it). Severity is medium-to-high IF an external centerPrice contract is in use; otherwise informational."
+      }
+    },
+    {
+      "id": "big_fluid_full-3",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "FluidVaultT1 / FluidVault",
+        "function": "liquidate(uint256,uint256,address,bool)",
+        "file": "contracts/protocols/vault/vaultT1/coreModule/main.sol",
+        "lines": "L592-L700"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "1000000000000000000000"
+          },
+          {
+            "name": "borrower",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidVaultT1 instance>",
+          "addr:<IFluidOracle instance>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Borrower position is at currentTick > maxTick (above max-limit liquidation tick) so absorb branch is taken",
+          "Oracle.getExchangeRateLiquidate() returns a value such that capped-to-1e45 path is exercised (temp_ > 1e45 capping branch)",
+          "Liquidation penalty (vaultVariables2 >> 72) & X10 is at maximum (1023 \u2192 10.23%)",
+          "BORROW_TOKEN is a low-decimal token (e.g., USDC 6dp) so that the supplyExPrice / borrowExPrice ratio multiplier interacts with the cap"
+        ],
+        "setup_calls": [
+          "ensure borrower is at the absorb threshold by warping price slightly past maxTick",
+          "attacker pre-funds debt token to liquidate"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertGt(actualColAmt_received_by_attacker, expectedColAmt_at_clean_oracle_price + 1e16);",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Observe borrower whose position has tick > maxTick. liquidate() will absorb up to maxTick first via _spell to SECONDARY_IMPLEMENTATION.absorb.",
+        "Inside the unchecked block at L644-L676, temp_ is converted from oracle exchange rate \u00d7 supplyExPrice / borrowExPrice; cap `if (temp_ > 1e45) temp_ = 1e45` is applied AFTER the multiplication, so any overflow during the multiplication itself silently wraps before the cap is read.",
+        "When supplyExPrice / borrowExPrice is large (e.g., long-lived borrow with steep interest accrual), `temp_ * supplyExPrice` can wrap inside unchecked even if the original oracle price was well below the cap; the post-wrap value then trivially passes the `if (temp_ > 1e45)` check (because the wrapped value is small) and is used directly in `temp2_ = 1e54 / temp_`, yielding an inflated colPerDebt_ that pays the liquidator more collateral than the protocol intends.",
+        "Attacker calls liquidate() with this skewed colPerDebt; profit = (inflated colPerDebt - true colPerDebt) \u00d7 debtAmt \u00d7 (1 + penalty)."
+      ],
+      "preconditions": [
+        "Vault has been live long enough for supplyExPrice / borrowExPrice to grow significantly (1e36+ scale)",
+        "Oracle.getExchangeRateLiquidate() near 1e45 cap",
+        "Existing under-water borrower available"
+      ],
+      "triage": {
+        "score": 0.35,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: the `unchecked` block at L644-L676 of vaultT1/main.sol contains chained multiplications `temp_ = (temp_ * supplyExPrice) / borrowExPrice` followed by `temp2_ = 1e54 / temp_` followed by `temp2_ * (10000 + penalty)`. The 1e45 cap fires AFTER the first multiplication, not before. With temp_ near 1e54 (oracle returns up to 1e54 per the validity check at L640) and supplyExPrice up to ~1e30 in long-lived markets, `temp_ * supplyExPrice` exceeds 2^256 and wraps inside unchecked. Whether this actually under-pays the protocol vs over-pays depends on which direction the wrap pushes temp_ relative to colPerDebt scaling \u2014 needs a forge fuzz to nail down. MCGA: limiting.liquidate ranks #2 with 22 unchecked_arith sinks; FluidVault._liquidate internal callee ranks #1 with 20. KG seed: no direct DeFiHackLabs match \u2014 generic unchecked-overflow pattern. Severity highly conditional on real-world supplyExPrice values reaching the wrap boundary; if Fluid auditors verified bounds, this is informational."
+      }
+    }
+  ],
+  "verified": [
+    {
+      "id": "big_fluid_full-1",
+      "vuln_class": "callback_state_corruption",
+      "target": {
+        "contract": "FluidDexT1",
+        "function": "swapInWithCallback(bool,uint256,uint256,address)",
+        "file": "contracts/protocols/dex/poolT1/coreModule/core/main.sol",
+        "lines": "L49-L357"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexT1 instance>",
+          "addr:<FluidLiquidity>",
+          "deploy:MaliciousCallbackContract"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "DEX is unpaused (dexVariables2 high bit == 0)",
+          "Both smart-collateral and smart-debt pools are enabled",
+          "dexVariables (last-stored swap price/oracle slot) is at attacker-favorable boundary"
+        ],
+        "setup_calls": [
+          "attacker funds MaliciousCallbackContract with sufficient tokenIn",
+          "attacker pre-positions a perfect-deposit position so that subsequent _withdrawPerfect / borrowPerfect path is reachable from the callback"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertGt(IERC20(tokenOut).balanceOf(attacker) - tokenInSpent_in_tokenOut_units, 1e16);",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker calls FluidDexT1.swapInWithCallback(...) from MaliciousCallbackContract.",
+        "Inside _swapIn, after price/reserves are computed from current dexVariables but BEFORE dexVariables are written back via _updateOracle (line ~354), the dex calls LIQUIDITY.operate which triggers a liquidityCallback on the dex; the dex then invokes IDexCallback(msg.sender).dexCallback(token_, amount_) on the attacker contract to pull tokenIn.",
+        "At callback time, the dex has not yet updated dexVariables for this trade. Attacker re-enters via a different external entry \u2014 either (a) FluidDexT1.depositPerfect / borrowPerfect (which routes through PERFECT_OPERATIONS_AND_SWAP_OUT_IMPLEMENTATION via _spell delegatecall and may share the same dexVariables read), or (b) another swap path that uses the stale pex_ snapshot.",
+        "If the inner state read happens against pre-trade reserves but trades settle against post-trade liquidity balances, attacker pays old-price for a portion already locked in flight \u2014 extracting price/exchange-price difference.",
+        "The same callback entry-point is also reachable mid-flight in swapOutWithCallback via the same _spell route; combined with the dexCallback pulling tokens, attacker can momentarily owe tokens it has not transferred, expanding the inconsistent-state window."
+      ],
+      "preconditions": [
+        "Attacker has tokenIn equal to required amountIn",
+        "Pool reserves are large enough that an in-flight swap is meaningful relative to dexVariables drift"
+      ],
+      "triage": {
+        "score": 0.45,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration (15-iter budget; mainnet-fork PoC against full Fluid stack would consume ~all of it). Rationale: dex calls IDexCallback(msg.sender).dexCallback during _swapIn before _updateOracle writes the post-trade dexVariables. Two LIQUIDITY.operate calls are made in sequence; the first one's liquidityCallback yields control to the dex and then to msg.sender. The 'reentrancy bit' pattern visible in vaultT1.liquidate (vaultVariables & 1) is the canonical lock used in this codebase, but FluidDexT1._swapIn does not exhibit a similar guard at the entry point \u2014 instead relying on dexVariables only being committed at the end, which is the pattern that has historically caused mid-flight oracle/state bugs (e.g., curve-style read-only reentrancy). Needs deeper trace through PERFECT_OPERATIONS_AND_SWAP_OUT_IMPLEMENTATION._spell and a PoC that exploits stale pex_ snapshot. KG seed: BNO_exp (2023-07) \u2014 interface-overlap match (IERC20/IERC721) plus general callback-during-state pattern. MCGA: dexCallback ranks #6 by sink density with combined block_dep + transfer_token + unchecked_arith sinks."
+      }
+    },
+    {
+      "id": "big_fluid_full-2",
+      "vuln_class": "oracle_manipulation",
+      "target": {
+        "contract": "DexPricesAndExchangePrices / CoreHelpers",
+        "function": "_calcRangeShifting / _updateOracle / centerPrice()",
+        "file": "contracts/protocols/dex/poolT1/coreModule/helpers/coreHelpers.sol",
+        "lines": "L24-L48 (interface), L798+ (_updateOracle)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexT1 instance>",
+          "deploy:MaliciousCenterPriceContract implementing ICenterPrice.centerPrice() returning attacker-controlled value"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "DEX has a non-zero centerPriceContract configured in dexVariables2 (i.e., extracted external center-price source is enabled)",
+          "Range shifting is currently active (rangeShift_ has nonzero startTimeStamp_/shiftDuration_)",
+          "block.timestamp is near the boundary (startTimeStamp_ + shiftDuration_) of the active shift"
+        ],
+        "setup_calls": [
+          "attacker observes that dexVariables2 references an external ICenterPrice contract whose price is permitted to drift",
+          "attacker times tx so that (startTimeStamp_ + shiftDuration_) < block.timestamp by a small delta"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "share_price_inflated",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Step 1: monitor rangeShift slot. When (startTimeStamp_ + shiftDuration_) just crosses block.timestamp, _calcRangeShifting takes the 'shifting fully done' branch and applies the target upperRange/lowerRange in full \u2014 but only on the next state-mutating call.",
+        "Step 2: in the same block (or via a flashloan), call swapIn at the boundary so that pex_ (PricesAndExchangePrices) is computed using the just-finalized range. Because _calcShiftingDone uses linear `((diff_ * timePassed_) / shiftDuration_)` integer division, on the boundary block the value snaps abruptly from interpolated to final without a smoothing window.",
+        "Step 3: combine with a center-price contract whose value moves freely \u2014 _updateOracle commits a new price based on this jump. The next observer of dexVariables (e.g. liquidations or downstream resolvers reading via DexT1) sees a price that moved more in 1 block than the shift duration was supposed to allow.",
+        "Step 4: on the post-jump block, attacker's pre-positioned LP shares or perfect-deposit position is redeemable at the inflated post-jump price; the symmetric victim is anyone whose collateral is valued via the dex price (FluidVaults using DexOracle implementations)."
+      ],
+      "preconditions": [
+        "ICenterPrice contract is referenced via dexVariables2 (configurable per-pool by admin)",
+        "An active range/threshold shift exists at attack time",
+        "Attacker has access to flashloan liquidity to amplify the boundary-block opportunity"
+      ],
+      "triage": {
+        "score": 0.4,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: _calcShiftingDone uses linear integer interpolation `current_ = old_ + ((diff_ * timePassed_) / shiftDuration_)` which is monotonic but discontinuous at the boundary because the 'shifting done' branch (line 73-80) snaps the dexVariables2 storage in one shot. Combined with an external ICenterPrice contract that the dex trusts without staleness checks (the interface only exposes `centerPrice()` view, no timestamp or signed bound), a malicious or compromised admin-configured center-price contract can return values that, in the boundary block, get committed to dexVariables via _updateOracle without being smoothed against a previous-block bound. MCGA: _calcRangeShifting tops the external sink-density list with 23 sinks (block_dep + unchecked_arith) \u2014 the block_dep tags are exactly these timestamp-boundary reads. KG seed: not a direct DeFiHackLabs match, but pattern resembles oracle-trust assumption attacks generally found in the IChainlinkAggregatorV3 interface family (target imports it). Severity is medium-to-high IF an external centerPrice contract is in use; otherwise informational."
+      }
+    },
+    {
+      "id": "big_fluid_full-3",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "FluidVaultT1 / FluidVault",
+        "function": "liquidate(uint256,uint256,address,bool)",
+        "file": "contracts/protocols/vault/vaultT1/coreModule/main.sol",
+        "lines": "L592-L700"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "1000000000000000000000"
+          },
+          {
+            "name": "borrower",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidVaultT1 instance>",
+          "addr:<IFluidOracle instance>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Borrower position is at currentTick > maxTick (above max-limit liquidation tick) so absorb branch is taken",
+          "Oracle.getExchangeRateLiquidate() returns a value such that capped-to-1e45 path is exercised (temp_ > 1e45 capping branch)",
+          "Liquidation penalty (vaultVariables2 >> 72) & X10 is at maximum (1023 \u2192 10.23%)",
+          "BORROW_TOKEN is a low-decimal token (e.g., USDC 6dp) so that the supplyExPrice / borrowExPrice ratio multiplier interacts with the cap"
+        ],
+        "setup_calls": [
+          "ensure borrower is at the absorb threshold by warping price slightly past maxTick",
+          "attacker pre-funds debt token to liquidate"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertGt(actualColAmt_received_by_attacker, expectedColAmt_at_clean_oracle_price + 1e16);",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Observe borrower whose position has tick > maxTick. liquidate() will absorb up to maxTick first via _spell to SECONDARY_IMPLEMENTATION.absorb.",
+        "Inside the unchecked block at L644-L676, temp_ is converted from oracle exchange rate \u00d7 supplyExPrice / borrowExPrice; cap `if (temp_ > 1e45) temp_ = 1e45` is applied AFTER the multiplication, so any overflow during the multiplication itself silently wraps before the cap is read.",
+        "When supplyExPrice / borrowExPrice is large (e.g., long-lived borrow with steep interest accrual), `temp_ * supplyExPrice` can wrap inside unchecked even if the original oracle price was well below the cap; the post-wrap value then trivially passes the `if (temp_ > 1e45)` check (because the wrapped value is small) and is used directly in `temp2_ = 1e54 / temp_`, yielding an inflated colPerDebt_ that pays the liquidator more collateral than the protocol intends.",
+        "Attacker calls liquidate() with this skewed colPerDebt; profit = (inflated colPerDebt - true colPerDebt) \u00d7 debtAmt \u00d7 (1 + penalty)."
+      ],
+      "preconditions": [
+        "Vault has been live long enough for supplyExPrice / borrowExPrice to grow significantly (1e36+ scale)",
+        "Oracle.getExchangeRateLiquidate() near 1e45 cap",
+        "Existing under-water borrower available"
+      ],
+      "triage": {
+        "score": 0.35,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: the `unchecked` block at L644-L676 of vaultT1/main.sol contains chained multiplications `temp_ = (temp_ * supplyExPrice) / borrowExPrice` followed by `temp2_ = 1e54 / temp_` followed by `temp2_ * (10000 + penalty)`. The 1e45 cap fires AFTER the first multiplication, not before. With temp_ near 1e54 (oracle returns up to 1e54 per the validity check at L640) and supplyExPrice up to ~1e30 in long-lived markets, `temp_ * supplyExPrice` exceeds 2^256 and wraps inside unchecked. Whether this actually under-pays the protocol vs over-pays depends on which direction the wrap pushes temp_ relative to colPerDebt scaling \u2014 needs a forge fuzz to nail down. MCGA: limiting.liquidate ranks #2 with 22 unchecked_arith sinks; FluidVault._liquidate internal callee ranks #1 with 20. KG seed: no direct DeFiHackLabs match \u2014 generic unchecked-overflow pattern. Severity highly conditional on real-world supplyExPrice values reaching the wrap boundary; if Fluid auditors verified bounds, this is informational."
+      }
+    }
+  ],
+  "cost_usd": 1.12386925,
+  "elapsed_sec": 193.92,
+  "exit_code": 0
+}

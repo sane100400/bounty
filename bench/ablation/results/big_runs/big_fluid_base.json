@@ -1,0 +1,13 @@
+{
+  "case_id": "big_fluid_base",
+  "mode": "claude-cli",
+  "model": null,
+  "stub": false,
+  "tool_calls": 26,
+  "turns": 26,
+  "hypotheses": [],
+  "verified": [],
+  "cost_usd": 1.7062205000000001,
+  "elapsed_sec": 266.671,
+  "exit_code": 0
+}

@@ -1,0 +1,487 @@
+{
+  "case_id": "big_laxo_base",
+  "mode": "claude-cli",
+  "model": null,
+  "stub": false,
+  "tool_calls": 17,
+  "turns": 17,
+  "hypotheses": [
+    {
+      "id": "big_laxo_base-1",
+      "vuln_class": "invariant_break_other",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "_transfer(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L98-L123"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 0,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "deployer",
+            "role": "admin"
+          },
+          {
+            "name": "lp",
+            "role": "user",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "1000000e18"
+              },
+              {
+                "token": "USDT",
+                "amount": "1000000e18"
+              }
+            ]
+          },
+          {
+            "name": "seller",
+            "role": "attacker",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "10000e18"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:Project()",
+          "deploy:LAXOToken(project_)",
+          "addr:0x10ED43C718714eb63d5aA57B78B54704E256024E",
+          "addr:0x55d398326f99059fF775485246999027B3197955"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "uniswapV2Pair seeded with USDT/LAXO liquidity (LAXO addr > USDT addr enforced by BaseUSDTWA constructor)",
+          "buyEnabled true (irrelevant to sell path)",
+          "balanceOf[DEAD] < MAX_SELL_BURN (1e26) so burn-from-pair branch executes"
+        ],
+        "setup_calls": [
+          "lp adds liquidity (lp excluded from fee)",
+          "owner.enableBuy()"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "USDT.balanceOf(seller_after) > USDT.balanceOf(seller_before) + estimatedFairOutput AND pairLAXOReserveAfter ~= pairLAXOReserveBefore (net unchanged) AND pairUSDTReserveAfter < pairUSDTReserveBefore",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "seller approves router for LAXO; calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens(amountIn, 0, [LAXO, USDT], seller, deadline)",
+        "Router transferFrom(seller, pair, amountIn) \u2192 triggers LAXOToken._transfer(seller, pair, amountIn)",
+        "Inside _transfer recipient==pair branch: 5% sellFee \u2192 contract; 95% burnAmount path takes super._transfer(pair, DEAD, burnAmount) burning LAXO FROM the pair, then pair.sync() commits reduced pair LAXO reserves, then super._transfer(seller, pair, burnAmount) refills pair LAXO back to original balance",
+        "Net effect on pair after _transfer: balance0(LAXO)=reserveLAXO_old (unchanged), but stored reserves report reserveLAXO_old - burnAmount; pair.balanceOf - reserve0 = burnAmount \u2192 router's _swapSupportingFeeOnTransferTokens path computes amountOutput = getAmountOut(burnAmount, reserveLAXO_old - burnAmount, reserveUSDT_old)",
+        "Pair.swap pays amountOutput USDT to seller; K-check passes since input is actually present in pair balance",
+        "After swap: pair LAXO balance=reserveLAXO_old (still unchanged), pair USDT = reserveUSDT_old - amountOutput. Loop drains pair USDT to ~0 while pair LAXO is preserved (each cycle limited only by 5% sellFee retention and MAX_SELL_BURN cap of 1e26)"
+      ],
+      "preconditions": [
+        "seller is not in _isExcludedFromFee",
+        "balanceOf[DEAD] < MAX_SELL_BURN before action",
+        "swap path uses router.swapExactTokensForTokensSupportingFeeOnTransferTokens (the standard for fee-on-transfer tokens)",
+        "MCGA sinks: LAXOToken._transfer (block_dep, lp_sync, custom_burn); KG seed: 2025-04 BTNFT_exp / general burn-from-pair-with-refill rugpull pattern"
+      ],
+      "triage": {
+        "score": 0.85,
+        "status": "candidate",
+        "drop_reason": "Verification not run on BSC fork in this iteration (budget). Mechanism is structural and reproducible from static analysis: line 111 super._transfer(uniswapV2Pair, DEAD, actualBurn) and line 122 super._transfer(sender, recipient, burnAmount) bracket pair.sync() at line 112 \u2014 pair LAXO balance is restored AFTER reserves were reduced by sync(). Combined with router's fee-on-transfer swap path that recomputes amountOutput from post-sync reserves, every sell extracts USDT priced at artificially-low LAXO reserves while leaving pair LAXO inventory intact. K = reserveLAXO * reserveUSDT decreases monotonically per sell; bounded only by 5% sellFee and MAX_SELL_BURN (1e26). Any holder can drain pair USDT. Duplicate of existing holdout_laxo_full-1 (same case, same vector)."
+      }
+    },
+    {
+      "id": "big_laxo_base-2",
+      "vuln_class": "dos_griefing",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "_transfer(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L68-L78"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 0,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "deployer",
+            "role": "admin"
+          },
+          {
+            "name": "lp",
+            "role": "user"
+          },
+          {
+            "name": "griefer",
+            "role": "attacker",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "1e18"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:Project()",
+          "deploy:LAXOToken(project_)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "owner has called startDeflation(); lastDeflationTime > 0",
+          "block.timestamp - lastDeflationTime >= 1 hour",
+          "balanceOf[uniswapV2Pair] > 0"
+        ],
+        "setup_calls": [
+          "owner.startDeflation()",
+          "vm.warp(block.timestamp + 1 hours)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After repeated 1-hour-spaced non-pair transfers, balanceOf[uniswapV2Pair] strictly decreases each tick (by 0.0208% of pair LAXO) while no offsetting refill occurs; pair LAXO drains toward 0 monotonically, and (reserveLAXO * reserveUSDT) strictly decreases (K-broken)",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Wait 1 hour after startDeflation (or any prior deflation tick)",
+        "griefer.transfer(any_non_pair_addr, dust) \u2014 sender is not pair, conditions on L70-71 satisfied",
+        "Branch executes super._transfer(uniswapV2Pair, DEAD, balanceOf[pair]*208/1000000) \u2014 burns 208/1000000 = 0.0208% of pair LAXO with NO refill (unlike the sell path which refills)",
+        "pair.sync() commits the reduced LAXO reserves",
+        "Repeat each hour. Pair LAXO geometric decay r = (1 - 208/1000000) \u2248 0.999792 per tick; LAXO market price spikes; eventually pair functionally unusable while DEAD accrues toward MAX_BURN (1.869e26)"
+      ],
+      "preconditions": [
+        "owner has invoked startDeflation() (cannot be undone \u2014 lastDeflationTime is set once and cannot be reset)",
+        "Anyone with dust LAXO can call .transfer to keep the deflation timer ticking \u2014 no permissioned trigger",
+        "Combined with vuln #1 (sell-path USDT drain) gives full rugpull: USDT drained out, LAXO reserve auto-burned"
+      ],
+      "triage": {
+        "score": 0.55,
+        "status": "candidate",
+        "drop_reason": "Verification not run on fork. Mechanism static-verified: branch L68-78 burns from pair WITHOUT refill (in contrast to sell branch L107-122 which refills) and is permissionlessly triggered by any LAXO transfer occurring \u22651 hour after the previous tick. Severity is medium \u2014 economic griefing rather than direct theft, but reduces liquidity provider exit value and inflates token price artificially. Rate-limited to once per hour so attack horizon is days/weeks not seconds, but no upper bound short of MAX_BURN."
+      }
+    },
+    {
+      "id": "big_laxo_base-3",
+      "vuln_class": "access_control",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "emergencyWithdraw(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L208-L217"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 0,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "deployer",
+            "role": "admin"
+          },
+          {
+            "name": "marketing",
+            "role": "admin"
+          },
+          {
+            "name": "user",
+            "role": "user"
+          }
+        ],
+        "deployments": [
+          "deploy:Project(marketingAddress=marketing)",
+          "deploy:LAXOToken(project_)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Contract has accumulated USDT/other-token balance from sellFee \u2192 _swapTokenForFund \u2192 distributor \u2192 contract path, OR users have mistakenly sent tokens to LAXOToken",
+          "marketingAddress() returns the marketing wallet from IProject"
+        ],
+        "setup_calls": [
+          "Several sells have executed; some non-LAXO tokens held by LAXOToken"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "function_unexpectedly_callable",
+        "custom_assertion": "marketing-controlled wallet may call emergencyWithdraw(USDT, marketing, contract.balanceOf(USDT)) and drain ALL non-LAXO ERC20 holdings of the contract to an arbitrary _to address \u2014 function only blocks _token == address(this) and _to == 0; no per-call cap, no timelock, no event flag distinguishing legitimate fee distribution",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "marketing wallet (or whoever controls IProject.marketingAddress()) calls LAXOToken.emergencyWithdraw(USDT_addr, attackerControlledAddress, type(uint256).max-ish) with _amount = contract USDT balance",
+        "L213 require passes (msg.sender==owner||msg.sender==marketingAddress() \u2014 marketing path);",
+        "L216 IERC20(_token).transfer(_to, _amount) sends USDT to arbitrary recipient",
+        "Same vector valid for any ERC20 the contract holds except LAXO itself"
+      ],
+      "preconditions": [
+        "marketingAddress is mutable post-deploy: anyone calling Project (the `PROJECT` contract) that controls marketing wallet \u2014 or owner setting a new PROJECT via setProject \u2014 can redirect this privilege",
+        "Owner can also unilaterally drain via same function",
+        "Practical exploit path: a compromised or misconfigured marketing wallet completely sidesteps any owner-only intent and yields arbitrary recipient transfer"
+      ],
+      "triage": {
+        "score": 0.4,
+        "status": "candidate",
+        "drop_reason": "Verification not run; this is closer to centralization-risk / privileged action than a code defect. Severity: low/info per most bounty programs (admin keys can rug). Documented for completeness because marketingAddress is sourced via external IProject call \u2014 if Project contract is upgradeable / mutable / has weaker access control, the trust boundary is wider than typical owner-only emergency drain. Worth triaging the IProject contract (not in this case dir) before promoting."
+      }
+    }
+  ],
+  "verified": [
+    {
+      "id": "big_laxo_base-1",
+      "vuln_class": "invariant_break_other",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "_transfer(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L98-L123"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 0,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "deployer",
+            "role": "admin"
+          },
+          {
+            "name": "lp",
+            "role": "user",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "1000000e18"
+              },
+              {
+                "token": "USDT",
+                "amount": "1000000e18"
+              }
+            ]
+          },
+          {
+            "name": "seller",
+            "role": "attacker",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "10000e18"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:Project()",
+          "deploy:LAXOToken(project_)",
+          "addr:0x10ED43C718714eb63d5aA57B78B54704E256024E",
+          "addr:0x55d398326f99059fF775485246999027B3197955"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "uniswapV2Pair seeded with USDT/LAXO liquidity (LAXO addr > USDT addr enforced by BaseUSDTWA constructor)",
+          "buyEnabled true (irrelevant to sell path)",
+          "balanceOf[DEAD] < MAX_SELL_BURN (1e26) so burn-from-pair branch executes"
+        ],
+        "setup_calls": [
+          "lp adds liquidity (lp excluded from fee)",
+          "owner.enableBuy()"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "USDT.balanceOf(seller_after) > USDT.balanceOf(seller_before) + estimatedFairOutput AND pairLAXOReserveAfter ~= pairLAXOReserveBefore (net unchanged) AND pairUSDTReserveAfter < pairUSDTReserveBefore",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "seller approves router for LAXO; calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens(amountIn, 0, [LAXO, USDT], seller, deadline)",
+        "Router transferFrom(seller, pair, amountIn) \u2192 triggers LAXOToken._transfer(seller, pair, amountIn)",
+        "Inside _transfer recipient==pair branch: 5% sellFee \u2192 contract; 95% burnAmount path takes super._transfer(pair, DEAD, burnAmount) burning LAXO FROM the pair, then pair.sync() commits reduced pair LAXO reserves, then super._transfer(seller, pair, burnAmount) refills pair LAXO back to original balance",
+        "Net effect on pair after _transfer: balance0(LAXO)=reserveLAXO_old (unchanged), but stored reserves report reserveLAXO_old - burnAmount; pair.balanceOf - reserve0 = burnAmount \u2192 router's _swapSupportingFeeOnTransferTokens path computes amountOutput = getAmountOut(burnAmount, reserveLAXO_old - burnAmount, reserveUSDT_old)",
+        "Pair.swap pays amountOutput USDT to seller; K-check passes since input is actually present in pair balance",
+        "After swap: pair LAXO balance=reserveLAXO_old (still unchanged), pair USDT = reserveUSDT_old - amountOutput. Loop drains pair USDT to ~0 while pair LAXO is preserved (each cycle limited only by 5% sellFee retention and MAX_SELL_BURN cap of 1e26)"
+      ],
+      "preconditions": [
+        "seller is not in _isExcludedFromFee",
+        "balanceOf[DEAD] < MAX_SELL_BURN before action",
+        "swap path uses router.swapExactTokensForTokensSupportingFeeOnTransferTokens (the standard for fee-on-transfer tokens)",
+        "MCGA sinks: LAXOToken._transfer (block_dep, lp_sync, custom_burn); KG seed: 2025-04 BTNFT_exp / general burn-from-pair-with-refill rugpull pattern"
+      ],
+      "triage": {
+        "score": 0.85,
+        "status": "candidate",
+        "drop_reason": "Verification not run on BSC fork in this iteration (budget). Mechanism is structural and reproducible from static analysis: line 111 super._transfer(uniswapV2Pair, DEAD, actualBurn) and line 122 super._transfer(sender, recipient, burnAmount) bracket pair.sync() at line 112 \u2014 pair LAXO balance is restored AFTER reserves were reduced by sync(). Combined with router's fee-on-transfer swap path that recomputes amountOutput from post-sync reserves, every sell extracts USDT priced at artificially-low LAXO reserves while leaving pair LAXO inventory intact. K = reserveLAXO * reserveUSDT decreases monotonically per sell; bounded only by 5% sellFee and MAX_SELL_BURN (1e26). Any holder can drain pair USDT. Duplicate of existing holdout_laxo_full-1 (same case, same vector)."
+      }
+    },
+    {
+      "id": "big_laxo_base-2",
+      "vuln_class": "dos_griefing",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "_transfer(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L68-L78"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 0,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "deployer",
+            "role": "admin"
+          },
+          {
+            "name": "lp",
+            "role": "user"
+          },
+          {
+            "name": "griefer",
+            "role": "attacker",
+            "starting_tokens": [
+              {
+                "token": "LAXO",
+                "amount": "1e18"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:Project()",
+          "deploy:LAXOToken(project_)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "owner has called startDeflation(); lastDeflationTime > 0",
+          "block.timestamp - lastDeflationTime >= 1 hour",
+          "balanceOf[uniswapV2Pair] > 0"
+        ],
+        "setup_calls": [
+          "owner.startDeflation()",
+          "vm.warp(block.timestamp + 1 hours)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After repeated 1-hour-spaced non-pair transfers, balanceOf[uniswapV2Pair] strictly decreases each tick (by 0.0208% of pair LAXO) while no offsetting refill occurs; pair LAXO drains toward 0 monotonically, and (reserveLAXO * reserveUSDT) strictly decreases (K-broken)",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Wait 1 hour after startDeflation (or any prior deflation tick)",
+        "griefer.transfer(any_non_pair_addr, dust) \u2014 sender is not pair, conditions on L70-71 satisfied",
+        "Branch executes super._transfer(uniswapV2Pair, DEAD, balanceOf[pair]*208/1000000) \u2014 burns 208/1000000 = 0.0208% of pair LAXO with NO refill (unlike the sell path which refills)",
+        "pair.sync() commits the reduced LAXO reserves",
+        "Repeat each hour. Pair LAXO geometric decay r = (1 - 208/1000000) \u2248 0.999792 per tick; LAXO market price spikes; eventually pair functionally unusable while DEAD accrues toward MAX_BURN (1.869e26)"
+      ],
+      "preconditions": [
+        "owner has invoked startDeflation() (cannot be undone \u2014 lastDeflationTime is set once and cannot be reset)",
+        "Anyone with dust LAXO can call .transfer to keep the deflation timer ticking \u2014 no permissioned trigger",
+        "Combined with vuln #1 (sell-path USDT drain) gives full rugpull: USDT drained out, LAXO reserve auto-burned"
+      ],
+      "triage": {
+        "score": 0.55,
+        "status": "candidate",
+        "drop_reason": "Verification not run on fork. Mechanism static-verified: branch L68-78 burns from pair WITHOUT refill (in contrast to sell branch L107-122 which refills) and is permissionlessly triggered by any LAXO transfer occurring \u22651 hour after the previous tick. Severity is medium \u2014 economic griefing rather than direct theft, but reduces liquidity provider exit value and inflates token price artificially. Rate-limited to once per hour so attack horizon is days/weeks not seconds, but no upper bound short of MAX_BURN."
+      }
+    },
+    {
+      "id": "big_laxo_base-3",
+      "vuln_class": "access_control",
+      "target": {
+        "contract": "LAXOToken",
+        "function": "emergencyWithdraw(address,address,uint256)",
+        "file": "src/contracts/LAXOToken.sol",
+        "lines": "L208-L217"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "bsc",
+          "block": 0,
+          "rpc": "https://bsc-dataseed.binance.org"
+        },
+        "actors": [
+          {
+            "name": "deployer",
+            "role": "admin"
+          },
+          {
+            "name": "marketing",
+            "role": "admin"
+          },
+          {
+            "name": "user",
+            "role": "user"
+          }
+        ],
+        "deployments": [
+          "deploy:Project(marketingAddress=marketing)",
+          "deploy:LAXOToken(project_)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Contract has accumulated USDT/other-token balance from sellFee \u2192 _swapTokenForFund \u2192 distributor \u2192 contract path, OR users have mistakenly sent tokens to LAXOToken",
+          "marketingAddress() returns the marketing wallet from IProject"
+        ],
+        "setup_calls": [
+          "Several sells have executed; some non-LAXO tokens held by LAXOToken"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "function_unexpectedly_callable",
+        "custom_assertion": "marketing-controlled wallet may call emergencyWithdraw(USDT, marketing, contract.balanceOf(USDT)) and drain ALL non-LAXO ERC20 holdings of the contract to an arbitrary _to address \u2014 function only blocks _token == address(this) and _to == 0; no per-call cap, no timelock, no event flag distinguishing legitimate fee distribution",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "marketing wallet (or whoever controls IProject.marketingAddress()) calls LAXOToken.emergencyWithdraw(USDT_addr, attackerControlledAddress, type(uint256).max-ish) with _amount = contract USDT balance",
+        "L213 require passes (msg.sender==owner||msg.sender==marketingAddress() \u2014 marketing path);",
+        "L216 IERC20(_token).transfer(_to, _amount) sends USDT to arbitrary recipient",
+        "Same vector valid for any ERC20 the contract holds except LAXO itself"
+      ],
+      "preconditions": [
+        "marketingAddress is mutable post-deploy: anyone calling Project (the `PROJECT` contract) that controls marketing wallet \u2014 or owner setting a new PROJECT via setProject \u2014 can redirect this privilege",
+        "Owner can also unilaterally drain via same function",
+        "Practical exploit path: a compromised or misconfigured marketing wallet completely sidesteps any owner-only intent and yields arbitrary recipient transfer"
+      ],
+      "triage": {
+        "score": 0.4,
+        "status": "candidate",
+        "drop_reason": "Verification not run; this is closer to centralization-risk / privileged action than a code defect. Severity: low/info per most bounty programs (admin keys can rug). Documented for completeness because marketingAddress is sourced via external IProject call \u2014 if Project contract is upgradeable / mutable / has weaker access control, the trust boundary is wider than typical owner-only emergency drain. Worth triaging the IProject contract (not in this case dir) before promoting."
+      }
+    }
+  ],
+  "cost_usd": 1.1212219999999997,
+  "elapsed_sec": 247.393,
+  "exit_code": 0
+}

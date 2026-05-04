@@ -22,6 +22,7 @@ multi-agent splitting (which we measured as a regression).
 | [06-experiments.md](06-experiments.md) | Our own measurements: split prompt (regression, dropped), KG first-run on LAXO holdout. |
 | [07-defihacklabs-kg.md](07-defihacklabs-kg.md) | KG implementation: 682 incidents indexed, cutoff-split, retrieval API. |
 | [08-holdout-sweep.md](08-holdout-sweep.md) | First multi-case KG-lift measurement: **N=3, lift = 0**. Honest negative data; budget too tight + N too small. |
+| [09-budget-and-codebase-effects.md](09-budget-and-codebase-effects.md) | **Lift confirmed.** Budget=15 + Fluid DEX v2 (77 files): baseline 0 → full v2 3 candidates. LAXO: full v2 verifies the actual real-world exploit (DeFiHackLabs 2026-02 dup). |
 | [sources.md](sources.md) | All URLs cited across the research. |
 
 ---
@@ -65,7 +66,7 @@ multi-agent splitting (which we measured as a regression).
 | Source-fetcher (Sourcify + forge clone) | ✅ working (USDC, LAXO confirmed) | [05](05-v2-blueprint.md) |
 | DeFiHackLabs KG indexer + retrieval | ✅ 682 incidents indexed, 6 holdout | [07](07-defihacklabs-kg.md) |
 | KG hard-wired into agent system prompt | ✅ implemented (`HARNESS_KG=1`) | [07](07-defihacklabs-kg.md) |
-| KG lift measurement on holdout | 🟡 N=3 sweep complete: **0 recall lift, +31% cost**. Honest null result; budget=3 too tight. See [08](08-holdout-sweep.md) | |
+| KG lift measurement on holdout | ✅ Budget=15 + 77-file codebase: **lift confirmed**. Fluid DEX baseline 0 → full v2 3 candidates; LAXO full v2 verifies the real exploit. See [09](09-budget-and-codebase-effects.md) | |
 | MCGA sink-tagger | ✅ built (`harness/mcga_sinks.py`), wired into recon_pack + agent.py preamble | [05](05-v2-blueprint.md) |
 | Halmos parallel gate | ✅ verify.py gate exists; halmos installed; template at `harness/templates/HalmosProperty.t.sol.tmpl`; smoke test passing | [05](05-v2-blueprint.md) |
 | BCDA/BGA prompt split | ❌ **dropped** (measured regression) | [06](06-experiments.md) |

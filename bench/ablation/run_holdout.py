@@ -77,19 +77,22 @@ def assemble_case(case_id: str, fetch_result: dict, work: Path) -> Path | None:
     return None
 
 
-def run_mode(case_dir: Path, case_id: str, mode: str, budget: int) -> dict:
+def run_mode(case_dir: Path, case_id: str, mode: str, budget: int,
+             max_budget_usd: float = 20.0, timeout_sec: int = 5400) -> dict:
     env = os.environ.copy()
     if mode == "full":
         env["HARNESS_KG"] = "1"
         env["HARNESS_MCGA"] = "1"
     elif mode == "baseline":
         env.pop("HARNESS_KG", None); env.pop("HARNESS_MCGA", None)
+    env["HARNESS_MAX_BUDGET_USD"] = str(max_budget_usd)
+    env["HARNESS_TIMEOUT_SEC"] = str(timeout_sec)
     started = time.time()
     r = subprocess.run(
         [sys.executable, str(REPO / "bench" / "ablation" / "agent.py"),
          str(case_dir), "--case-id", f"holdout_{case_id}_{mode}",
          "--budget", str(budget)],
-        capture_output=True, text=True, timeout=900, env=env,
+        capture_output=True, text=True, timeout=timeout_sec + 60, env=env,
     )
     wall = time.time() - started
     try:
@@ -132,6 +135,8 @@ def summarize(rows: list[dict]) -> str:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--budget", type=int, default=3)
+    ap.add_argument("--max-budget-usd", type=float, default=20.0)
+    ap.add_argument("--timeout-sec", type=int, default=5400)
     ap.add_argument("--modes", default="baseline,full")
     ap.add_argument("--only", help="comma-separated case_id substring filter")
     ap.add_argument("--work", default="/tmp/holdout_sweep")
@@ -171,7 +176,9 @@ def main(argv: list[str]) -> int:
 
         for mode in modes:
             print(f"  running mode={mode}...")
-            result = run_mode(case_dir, case_id, mode, args.budget)
+            result = run_mode(case_dir, case_id, mode, args.budget,
+                               max_budget_usd=args.max_budget_usd,
+                               timeout_sec=args.timeout_sec)
             cost = result.get("cost_usd")
             n = len(result.get("hypotheses", []) or [])
             print(f"    cost={cost} findings={n}")

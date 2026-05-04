@@ -11,7 +11,12 @@ Two parallel tracks in one workspace:
 
 > **Model**: Claude Opus 4.7 (1M context) — knowledge cutoff January 2026
 >
-> **Research summary**: harness *can* beat raw Opus (Knowdit 81% recall vs ~25% baseline in literature; AIxCC won by an 8B-class model with strong harness). Our N=3 holdout sweep at budget=3 has not yet reproduced a lift — see [docs/08-holdout-sweep.md](docs/08-holdout-sweep.md) for the honest null result.
+> **Research summary**: harness *does* beat raw Opus when you give it room.
+> At budget=3, lift was zero ([docs/08](docs/08-holdout-sweep.md)). At budget=15
+> on a 77-file post-cutoff Sherlock contest (Fluid DEX v2), baseline finds 0,
+> full v2 finds 3 candidates. On the LAXO holdout, full v2 **verifies the
+> actual real-world exploit** as a duplicate of DeFiHackLabs 2026-02 — see
+> [docs/09](docs/09-budget-and-codebase-effects.md).
 
 ---
 
@@ -140,7 +145,7 @@ to a per-case Foundry root (used by SCONE-mode runs after `scaffold_forge.py`).
 | KG hard-wired into agent system prompt | ✅ working (`HARNESS_KG=1`) |
 | MCGA sink tagger (16 categories) | ✅ working — correctly flags LAXO `_transfer` lp_sync |
 | Halmos parallel gate | ✅ template + smoke test passing |
-| 6-holdout KG-lift measurement | 🟡 N=3 done (lift = 0 at budget=3); N=6 + budget=10 needed |
+| KG-lift measurement | ✅ At budget=15 on 77-file post-cutoff Sherlock contest: baseline 0 → full v2 3. LAXO full v2 verifies the real-world exploit. |
 | BCDA/BGA prompt split | ❌ dropped — measured regression |
 
 For the long-form research story (questions, evidence, ceiling, blueprint, in-house experiments), read [docs/README.md](docs/README.md).
