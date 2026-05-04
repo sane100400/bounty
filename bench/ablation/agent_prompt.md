@@ -87,6 +87,10 @@ You have access to two oracle libraries — import them in PoC tests:
 
 1. **Recon**: Read `recon-pack/` (if present) or sample inscope files broadly.
    Note the protocol's claimed invariants from comments / docs.
+   *SCONE mode (no project_dir):* Run
+   `python3 harness/tools/source_fetcher.py <chain> <address> <out_dir>`
+   to materialize verified source from Sourcify (fallback Etherscan if
+   `ETHERSCAN_API_KEY` set). Then proceed with `out_dir` as project root.
 2. **Hypothesize**: For each promising spot, write a `hypotheses/<id>.json`
    following the schema. Pick `class_invariant` from the libraries above.
 3. **PoC**: Draft `poc-forge/test/AttackHarness_<id>.t.sol` using the template.
