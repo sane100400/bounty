@@ -1,0 +1,415 @@
+{
+  "case_id": "contest_fluid_dex_v2_baseline",
+  "mode": "claude-cli",
+  "model": null,
+  "stub": false,
+  "tool_calls": 21,
+  "turns": 21,
+  "hypotheses": [
+    {
+      "id": "contest_fluid_dex_v2_baseline-1",
+      "vuln_class": "oracle_manipulation",
+      "target": {
+        "contract": "CommonSwapModuleInternals (dexV2 d3d4common)",
+        "function": "_swapIn(SwapInInternalParams) / _swapOut(SwapOutInternalParams)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/swapModuleInternals.sol",
+        "lines": "L70-L96, L394-L422"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "controller",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2D3 or D4 instance>",
+          "deploy:MaliciousController implementing IController.fetchDynamicFeeForSwapIn returning (0, true)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "dexVariables2 BITS_DEX_V2_VARIABLES2_FETCH_DYNAMIC_FEE_FLAG == 1 (i.e. controller-driven dynamic fee enabled for this pool)",
+          "dexKey.controller is set to the malicious-controller contract",
+          "feeVersion == 1 (dynamic fee path) so the controller call branch is reachable",
+          "Pool has non-zero active liquidity and at least one resting LP position whose fees are accrued via feeGrowthGlobalX102"
+        ],
+        "setup_calls": [
+          "Admin (or governance) sets dexKey.controller = MaliciousController and flips fetchDynamicFee flag ON (the only on-chain prerequisite the attack relies on)",
+          "Honest LPs add liquidity expecting the controller-set dynamic fee to compensate them during volatility"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertEq(v_.constantLpFee, 0); // a swapper paid zero LP fee while controller's override flag was active",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Controller deploys a contract whose fetchDynamicFeeForSwapIn / fetchDynamicFeeForSwapOut returns abi.encode(uint256(0), true) \u2014 always 64 bytes, always succeeds.",
+        "Any swapper (msg.sender != controller) triggers the controller call at swapModuleInternals.sol L70-L83. success_ == true, returnData_.length == 64, fetchedDynamicFee_ = 0 (NOT > X16, so the bound check at L79 does not flip overrideDynamicFee_ back to false).",
+        "Branch at L86 takes overrideDynamicFee_ == true; v_.isConstantLpFee = true; v_.constantLpFee = fetchedDynamicFee_ = 0.",
+        "Swap proceeds with stepLpFeeRaw_ accrual at L156-L159 short-circuited by `if (... && v_.constantLpFee > 0)` \u2014 so feeGrowthGlobal0X102 / feeGrowthGlobal1X102 receive no LP-fee credit despite real swap volume passing through the active range.",
+        "Repeat continuously: LPs receive ZERO fees. Controller can be set to any contract by admin, including via governance compromise; if admin trust is the assumed boundary, this is a *trust upgrade* finding \u2014 the controller has *unbounded LP-fee-zero* power even on swaps it does not initiate, going beyond a normal `setFee` admin function which would at least require a tx and emit an event. Override happens silently per-swap.",
+        "Symmetric griefing: returning (X16, true) \u2014 exactly 65535 (~6.55%) \u2014 passes the L79 bound (only >X16 is rejected, equality is accepted) and combined with maximum protocol_cut_fee makes nearly every swap revert in slippage checks for honest users."
+      ],
+      "preconditions": [
+        "The controller address is mutable per dexKey (per d1/d2/d3/d4 admin module)",
+        "fetchDynamicFee flag is enabled on the pool"
+      ],
+      "triage": {
+        "score": 0.45,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration (full mainnet-fork PoC against deployed FluidDexV2 stack would consume the entire 15-iteration budget). Rationale: the controller hook at swapModuleInternals.sol L70-L83 has only an UPPER bound (`fetchedDynamicFee_ > X16` rejects), with no LOWER bound and no governance-time-lock around the override. The override is silent and per-swap. Combined with the controller being a *normal address* (not a special timelocked role) and the fetchDynamicFee flag being a single bit in dexVariables2, a compromised or malicious-by-design controller can drain LP fee revenue without any visible event. The intended `_validateLPFee` check at _initialize is bypassed because override does not flow through that path. KG seed: closest analog is the Uniswap-v4 hook abuse class \u2014 hooks that can return arbitrary fee values without floor checks. MCGA: dexCallback / fetchDynamicFeeForSwapIn ranks high in external-call sink density on this codebase. Severity is medium if controller is admin-trusted (LP-fee theft is direct economic loss to LPs); high if any non-admin path can set the controller."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_baseline-2",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "CommonUserModuleInternals (dexV2 d3d4common)",
+        "function": "_addLiquidity(AddLiquidityInternalParams) / _removeLiquidity(RemoveLiquidityInternalParams)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/userModuleInternals.sol",
+        "lines": "L36-L42 (add: round-down/up), L231-L243 (remove: NO rounding)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "1000000000000000000000"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2D3 or D4 instance with smart-debt enabled>",
+          "deploy:AttackerWrapper that loops add/remove with same amounts"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Pool exists with isSmartDebt=true (round-up branch active in _addLiquidity)",
+          "Attacker can add and remove liquidity in the same range without slippage limits hindering the dust",
+          "tickLower and tickUpper straddle currentTick so liquidity is 'active' (otherwise add/remove is 1-token only and the asymmetry is harder to monetize)"
+        ],
+        "setup_calls": [
+          "Attacker calls _addLiquidity with amount0DesiredRaw_, amount1DesiredRaw_ that produce a non-trivial liquidity number around the rounding boundary",
+          "Then immediately _removeLiquidity with the same amounts"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertGt(positionData_.liquidity_after_round_trip, 0); // dust accumulates after add+remove of identical token amounts",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker deposits (amount0, amount1) into smart-debt branch. _addLiquidity rounds liquidityIncreaseRaw_ UP via `(L * ROUNDING_FACTOR_PLUS_ONE) / ROUNDING_FACTOR + 1` (L41) \u2014 protocol pays the attacker MORE liquidity than the canonical Uniswap math would produce.",
+        "On _removeLiquidity (L231-L237) the protocol calls `LA.getLiquidityForAmounts(...)` directly with NO matching round-up/round-down adjustment, so liquidityDecreaseRaw_ is the raw, un-rounded amount.",
+        "Net effect of identical-amount round trip: position retains `(rounded_up_add - raw_remove)` liquidity, paid for by the asymmetry \u2014 i.e., the protocol overcounted on add but undercounted on remove. The leftover dust is effectively free liquidity.",
+        "Repeat thousands of times in a single tx (gas-bounded only). Each iteration leaks ~ROUNDING_FACTOR_PLUS_ONE/ROUNDING_FACTOR ratio dust into attacker's position. Once the position is meaningful, withdraw at a different price (or burn fee growth) for profit.",
+        "Symmetric inverse for isSmartCollateral=true (L37-L38): add rounds DOWN, remove uses raw \u2014 attacker gets back MORE tokens than they put in via remove because liquidityDecreaseRaw_ is raw-computed from the same desired amounts but the position holds the rounded-down liquidity. Exact direction of the leak depends on the (price, range, amounts) tuple."
+      ],
+      "preconditions": [
+        "Attacker can call user-facing add/remove liquidity within a single tx (no time-locks, no per-position cooldowns)",
+        "No fee on add or remove that dominates the rounding dust",
+        "Position is identified by `keccak256(abi.encode(msg.sender, tickLower, tickUpper, positionSalt))` so the attacker can target exactly the same position"
+      ],
+      "triage": {
+        "score": 0.4,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: the round-up at userModuleInternals.sol L40-L42 is asymmetric with the lack-of-round at L231-L237. The comment at L36 says 'protocol is on the winning side' \u2014 but that's only true if the OPPOSITE rounding is applied at remove. Code does not. The dust per round-trip is small (1 part in ROUNDING_FACTOR), but compoundable in a single transaction since there are no rate limits between add and remove of the same position. Whether net profit > gas is sensitive to the exact ROUNDING_FACTOR (need to grep constantVariables.sol \u2014 likely 1e6 or 1e9). MCGA: _addLiquidity / _removeLiquidity rank in the top-5 unchecked-arith sink density for dexV2. KG seed: pattern resembles the Cream Finance and Hundred-Finance round-trip dust drains; specifically the mDAI exploit (DeFiHackLabs 2022-04-27) where rounding asymmetry between mint/burn enabled drain via repeated calls. Severity is medium if ROUNDING_FACTOR is large enough that gas is amortized; low otherwise."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_baseline-3",
+      "vuln_class": "dos_griefing",
+      "target": {
+        "contract": "CommonSwapModuleInternals (dexV2 d3d4common)",
+        "function": "_swapIn / _swapOut \u2014 controller fetch path",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/swapModuleInternals.sol",
+        "lines": "L70-L84, L394-L410"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "controller",
+            "role": "admin"
+          },
+          {
+            "name": "swapper",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2D3 or D4 instance with fetchDynamicFee flag ON>",
+          "deploy:GriefingController whose fetchDynamicFeeForSwapIn always reverts OR returns mismatched data"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "fetchDynamicFee flag ON on the pool",
+          "Pool's controller is set (governance attack vector OR one-time admin setup error)",
+          "feeVersion == 1 OR feeVersion == 0 \u2014 both reach the controller call as long as the flag bit is on"
+        ],
+        "setup_calls": [
+          "Controller is configured as a contract that consumes >200K gas in fetchDynamicFeeForSwapIn (e.g., loops over a large storage array, or calls another contract)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertEq(v_.constantLpFee, default_fee_NOT_dynamic_fee); // controller's intended dynamic fee was silently dropped",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Step 1 \u2014 silent fail-open. The dex calls `controller.call{gas: 200000}(...)` (L73). On out-of-gas, success_ == false, override is skipped, and v_.constantLpFee falls back to (a) static lpFee at L91 if feeVersion==0, or (b) dynamic fee from `_computeSwapStepForSwapInWithDynamicFee` at L162 if feeVersion==1.",
+        "Step 2 \u2014 controller-set dynamic fee never applies. If the controller is *meant* to raise fees during a price-manipulation event (e.g., return higher-than-baseline fee when sqrtPriceX96 deviates from oracle), an attacker can pad calldata with extra non-zero data or simply submit during a high-base-fee block to make the call OOG. The fall-through fee is the LOWER static one. The attacker swaps cheaply during exactly the moment the controller wanted to penalize swaps.",
+        "Step 3 \u2014 alternate path: malicious controller deliberately returns mismatched return-data length (e.g., 96 bytes by encoding (uint256, bool, uint256)). L77 `success_ && returnData_.length == 64` rejects the override, falling back to default. Now controller can selectively decline to override (whitelist its own swaps but force-reject for others) \u2014 but since msg.sender==controller is already a special-case fast-path at L70, the relevant case is: controller is NOT msg.sender, controller wants to GIVE this swapper a discount, but the dex's return-length check rejects ABI-non-canonical encodings.",
+        "Step 4 \u2014 economic impact. During a multi-block volatility window, attacker stacks N swaps each of size approaching the active liquidity. Each swap pays the lower fallback fee instead of the controller-set surge fee. Aggregate LP loss = N * size * (surge_fee - fallback_fee) which for fee_diff = 5% and size = $1M is $50K per swap."
+      ],
+      "preconditions": [
+        "Controller logic depends on >200K gas to compute the surge fee (e.g., reads from a TWAP, calls Chainlink, walks a pricing table)",
+        "Attacker can trigger swaps adjacent to the high-cost code path (mempool front-run + access-list manipulation increases base call gas)"
+      ],
+      "triage": {
+        "score": 0.35,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: the silent fail-open semantics at swapModuleInternals.sol L82-L83 is intentional ('On failure or wrong return data size, use default values'). This is a valid design choice IF the controller is required to be gas-bounded; the comment at L72 claims '200K is sufficient for any reasonable fee calculation'. But Chainlink AggregatorV3 + uniswap TWAP read + Solidity-level math regularly cumulates >150K gas, leaving very little headroom; under a 1559 high-base-fee block, the L1 sub-call gas accounting can OOG inside the controller before the fee is computed. KG seed: matches the known fail-open class on Compound oracle and the Synthetix-pricer staleness pattern \u2014 protocols that fall back to a *cheaper* default rather than reverting create an attacker-chosen-fail surface. MCGA: ranks #4 by external-call sink density. Severity depends on whether controller-set surge fees are part of intended LP protection mechanism \u2014 if yes, this is medium; if controllers are only used for additive special-case discounts, this is informational.",
+        "duplicates": []
+      }
+    }
+  ],
+  "verified": [
+    {
+      "id": "contest_fluid_dex_v2_baseline-1",
+      "vuln_class": "oracle_manipulation",
+      "target": {
+        "contract": "CommonSwapModuleInternals (dexV2 d3d4common)",
+        "function": "_swapIn(SwapInInternalParams) / _swapOut(SwapOutInternalParams)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/swapModuleInternals.sol",
+        "lines": "L70-L96, L394-L422"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "controller",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2D3 or D4 instance>",
+          "deploy:MaliciousController implementing IController.fetchDynamicFeeForSwapIn returning (0, true)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "dexVariables2 BITS_DEX_V2_VARIABLES2_FETCH_DYNAMIC_FEE_FLAG == 1 (i.e. controller-driven dynamic fee enabled for this pool)",
+          "dexKey.controller is set to the malicious-controller contract",
+          "feeVersion == 1 (dynamic fee path) so the controller call branch is reachable",
+          "Pool has non-zero active liquidity and at least one resting LP position whose fees are accrued via feeGrowthGlobalX102"
+        ],
+        "setup_calls": [
+          "Admin (or governance) sets dexKey.controller = MaliciousController and flips fetchDynamicFee flag ON (the only on-chain prerequisite the attack relies on)",
+          "Honest LPs add liquidity expecting the controller-set dynamic fee to compensate them during volatility"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertEq(v_.constantLpFee, 0); // a swapper paid zero LP fee while controller's override flag was active",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Controller deploys a contract whose fetchDynamicFeeForSwapIn / fetchDynamicFeeForSwapOut returns abi.encode(uint256(0), true) \u2014 always 64 bytes, always succeeds.",
+        "Any swapper (msg.sender != controller) triggers the controller call at swapModuleInternals.sol L70-L83. success_ == true, returnData_.length == 64, fetchedDynamicFee_ = 0 (NOT > X16, so the bound check at L79 does not flip overrideDynamicFee_ back to false).",
+        "Branch at L86 takes overrideDynamicFee_ == true; v_.isConstantLpFee = true; v_.constantLpFee = fetchedDynamicFee_ = 0.",
+        "Swap proceeds with stepLpFeeRaw_ accrual at L156-L159 short-circuited by `if (... && v_.constantLpFee > 0)` \u2014 so feeGrowthGlobal0X102 / feeGrowthGlobal1X102 receive no LP-fee credit despite real swap volume passing through the active range.",
+        "Repeat continuously: LPs receive ZERO fees. Controller can be set to any contract by admin, including via governance compromise; if admin trust is the assumed boundary, this is a *trust upgrade* finding \u2014 the controller has *unbounded LP-fee-zero* power even on swaps it does not initiate, going beyond a normal `setFee` admin function which would at least require a tx and emit an event. Override happens silently per-swap.",
+        "Symmetric griefing: returning (X16, true) \u2014 exactly 65535 (~6.55%) \u2014 passes the L79 bound (only >X16 is rejected, equality is accepted) and combined with maximum protocol_cut_fee makes nearly every swap revert in slippage checks for honest users."
+      ],
+      "preconditions": [
+        "The controller address is mutable per dexKey (per d1/d2/d3/d4 admin module)",
+        "fetchDynamicFee flag is enabled on the pool"
+      ],
+      "triage": {
+        "score": 0.45,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration (full mainnet-fork PoC against deployed FluidDexV2 stack would consume the entire 15-iteration budget). Rationale: the controller hook at swapModuleInternals.sol L70-L83 has only an UPPER bound (`fetchedDynamicFee_ > X16` rejects), with no LOWER bound and no governance-time-lock around the override. The override is silent and per-swap. Combined with the controller being a *normal address* (not a special timelocked role) and the fetchDynamicFee flag being a single bit in dexVariables2, a compromised or malicious-by-design controller can drain LP fee revenue without any visible event. The intended `_validateLPFee` check at _initialize is bypassed because override does not flow through that path. KG seed: closest analog is the Uniswap-v4 hook abuse class \u2014 hooks that can return arbitrary fee values without floor checks. MCGA: dexCallback / fetchDynamicFeeForSwapIn ranks high in external-call sink density on this codebase. Severity is medium if controller is admin-trusted (LP-fee theft is direct economic loss to LPs); high if any non-admin path can set the controller."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_baseline-2",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "CommonUserModuleInternals (dexV2 d3d4common)",
+        "function": "_addLiquidity(AddLiquidityInternalParams) / _removeLiquidity(RemoveLiquidityInternalParams)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/userModuleInternals.sol",
+        "lines": "L36-L42 (add: round-down/up), L231-L243 (remove: NO rounding)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "1000000000000000000000"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2D3 or D4 instance with smart-debt enabled>",
+          "deploy:AttackerWrapper that loops add/remove with same amounts"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Pool exists with isSmartDebt=true (round-up branch active in _addLiquidity)",
+          "Attacker can add and remove liquidity in the same range without slippage limits hindering the dust",
+          "tickLower and tickUpper straddle currentTick so liquidity is 'active' (otherwise add/remove is 1-token only and the asymmetry is harder to monetize)"
+        ],
+        "setup_calls": [
+          "Attacker calls _addLiquidity with amount0DesiredRaw_, amount1DesiredRaw_ that produce a non-trivial liquidity number around the rounding boundary",
+          "Then immediately _removeLiquidity with the same amounts"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertGt(positionData_.liquidity_after_round_trip, 0); // dust accumulates after add+remove of identical token amounts",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker deposits (amount0, amount1) into smart-debt branch. _addLiquidity rounds liquidityIncreaseRaw_ UP via `(L * ROUNDING_FACTOR_PLUS_ONE) / ROUNDING_FACTOR + 1` (L41) \u2014 protocol pays the attacker MORE liquidity than the canonical Uniswap math would produce.",
+        "On _removeLiquidity (L231-L237) the protocol calls `LA.getLiquidityForAmounts(...)` directly with NO matching round-up/round-down adjustment, so liquidityDecreaseRaw_ is the raw, un-rounded amount.",
+        "Net effect of identical-amount round trip: position retains `(rounded_up_add - raw_remove)` liquidity, paid for by the asymmetry \u2014 i.e., the protocol overcounted on add but undercounted on remove. The leftover dust is effectively free liquidity.",
+        "Repeat thousands of times in a single tx (gas-bounded only). Each iteration leaks ~ROUNDING_FACTOR_PLUS_ONE/ROUNDING_FACTOR ratio dust into attacker's position. Once the position is meaningful, withdraw at a different price (or burn fee growth) for profit.",
+        "Symmetric inverse for isSmartCollateral=true (L37-L38): add rounds DOWN, remove uses raw \u2014 attacker gets back MORE tokens than they put in via remove because liquidityDecreaseRaw_ is raw-computed from the same desired amounts but the position holds the rounded-down liquidity. Exact direction of the leak depends on the (price, range, amounts) tuple."
+      ],
+      "preconditions": [
+        "Attacker can call user-facing add/remove liquidity within a single tx (no time-locks, no per-position cooldowns)",
+        "No fee on add or remove that dominates the rounding dust",
+        "Position is identified by `keccak256(abi.encode(msg.sender, tickLower, tickUpper, positionSalt))` so the attacker can target exactly the same position"
+      ],
+      "triage": {
+        "score": 0.4,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: the round-up at userModuleInternals.sol L40-L42 is asymmetric with the lack-of-round at L231-L237. The comment at L36 says 'protocol is on the winning side' \u2014 but that's only true if the OPPOSITE rounding is applied at remove. Code does not. The dust per round-trip is small (1 part in ROUNDING_FACTOR), but compoundable in a single transaction since there are no rate limits between add and remove of the same position. Whether net profit > gas is sensitive to the exact ROUNDING_FACTOR (need to grep constantVariables.sol \u2014 likely 1e6 or 1e9). MCGA: _addLiquidity / _removeLiquidity rank in the top-5 unchecked-arith sink density for dexV2. KG seed: pattern resembles the Cream Finance and Hundred-Finance round-trip dust drains; specifically the mDAI exploit (DeFiHackLabs 2022-04-27) where rounding asymmetry between mint/burn enabled drain via repeated calls. Severity is medium if ROUNDING_FACTOR is large enough that gas is amortized; low otherwise."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_baseline-3",
+      "vuln_class": "dos_griefing",
+      "target": {
+        "contract": "CommonSwapModuleInternals (dexV2 d3d4common)",
+        "function": "_swapIn / _swapOut \u2014 controller fetch path",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/swapModuleInternals.sol",
+        "lines": "L70-L84, L394-L410"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "controller",
+            "role": "admin"
+          },
+          {
+            "name": "swapper",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2D3 or D4 instance with fetchDynamicFee flag ON>",
+          "deploy:GriefingController whose fetchDynamicFeeForSwapIn always reverts OR returns mismatched data"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "fetchDynamicFee flag ON on the pool",
+          "Pool's controller is set (governance attack vector OR one-time admin setup error)",
+          "feeVersion == 1 OR feeVersion == 0 \u2014 both reach the controller call as long as the flag bit is on"
+        ],
+        "setup_calls": [
+          "Controller is configured as a contract that consumes >200K gas in fetchDynamicFeeForSwapIn (e.g., loops over a large storage array, or calls another contract)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "assertEq(v_.constantLpFee, default_fee_NOT_dynamic_fee); // controller's intended dynamic fee was silently dropped",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Step 1 \u2014 silent fail-open. The dex calls `controller.call{gas: 200000}(...)` (L73). On out-of-gas, success_ == false, override is skipped, and v_.constantLpFee falls back to (a) static lpFee at L91 if feeVersion==0, or (b) dynamic fee from `_computeSwapStepForSwapInWithDynamicFee` at L162 if feeVersion==1.",
+        "Step 2 \u2014 controller-set dynamic fee never applies. If the controller is *meant* to raise fees during a price-manipulation event (e.g., return higher-than-baseline fee when sqrtPriceX96 deviates from oracle), an attacker can pad calldata with extra non-zero data or simply submit during a high-base-fee block to make the call OOG. The fall-through fee is the LOWER static one. The attacker swaps cheaply during exactly the moment the controller wanted to penalize swaps.",
+        "Step 3 \u2014 alternate path: malicious controller deliberately returns mismatched return-data length (e.g., 96 bytes by encoding (uint256, bool, uint256)). L77 `success_ && returnData_.length == 64` rejects the override, falling back to default. Now controller can selectively decline to override (whitelist its own swaps but force-reject for others) \u2014 but since msg.sender==controller is already a special-case fast-path at L70, the relevant case is: controller is NOT msg.sender, controller wants to GIVE this swapper a discount, but the dex's return-length check rejects ABI-non-canonical encodings.",
+        "Step 4 \u2014 economic impact. During a multi-block volatility window, attacker stacks N swaps each of size approaching the active liquidity. Each swap pays the lower fallback fee instead of the controller-set surge fee. Aggregate LP loss = N * size * (surge_fee - fallback_fee) which for fee_diff = 5% and size = $1M is $50K per swap."
+      ],
+      "preconditions": [
+        "Controller logic depends on >200K gas to compute the surge fee (e.g., reads from a TWAP, calls Chainlink, walks a pricing table)",
+        "Attacker can trigger swaps adjacent to the high-cost code path (mempool front-run + access-list manipulation increases base call gas)"
+      ],
+      "triage": {
+        "score": 0.35,
+        "status": "candidate",
+        "drop_reason": "Verification not performed in this iteration. Rationale: the silent fail-open semantics at swapModuleInternals.sol L82-L83 is intentional ('On failure or wrong return data size, use default values'). This is a valid design choice IF the controller is required to be gas-bounded; the comment at L72 claims '200K is sufficient for any reasonable fee calculation'. But Chainlink AggregatorV3 + uniswap TWAP read + Solidity-level math regularly cumulates >150K gas, leaving very little headroom; under a 1559 high-base-fee block, the L1 sub-call gas accounting can OOG inside the controller before the fee is computed. KG seed: matches the known fail-open class on Compound oracle and the Synthetix-pricer staleness pattern \u2014 protocols that fall back to a *cheaper* default rather than reverting create an attacker-chosen-fail surface. MCGA: ranks #4 by external-call sink density. Severity depends on whether controller-set surge fees are part of intended LP protection mechanism \u2014 if yes, this is medium; if controllers are only used for additive special-case discounts, this is informational.",
+        "duplicates": []
+      }
+    }
+  ],
+  "cost_usd": 1.6697582500000003,
+  "elapsed_sec": 294.975,
+  "exit_code": 0
+}

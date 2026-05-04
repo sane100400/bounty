@@ -1,0 +1,427 @@
+{
+  "case_id": "contest_fluid_dex_v2_full",
+  "mode": "claude-cli",
+  "model": null,
+  "stub": false,
+  "tool_calls": 36,
+  "turns": 36,
+  "hypotheses": [
+    {
+      "id": "contest_fluid_dex_v2_full-1",
+      "vuln_class": "access_control",
+      "target": {
+        "contract": "CommonSwapModuleInternals (dexV2 d3d4common)",
+        "function": "_swapIn(SwapInInternalParams) / _swapOut(SwapOutInternalParams)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/swapModuleInternals.sol",
+        "lines": "L75-L93 (swapIn), L405-L423 (swapOut)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "controller",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          },
+          {
+            "name": "swapper",
+            "role": "user"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "deploy:MaliciousFeeController exposing fetchDynamicFeeForSwapIn/Out returning abi.encode(uint256(0), true)",
+          "deploy:FluidDexV2D3 (or D4) instance with controller = MaliciousFeeController",
+          "addr:<existing FluidDexV2D3 pool with fetchDynamicFee flag enabled>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "dexVariables2 BITS_DEX_V2_VARIABLES2_FETCH_DYNAMIC_FEE_FLAG == 1 (controller-driven dynamic fee enabled)",
+          "dexKey.controller is set to MaliciousFeeController address",
+          "Pool has non-zero active liquidity in current tick range",
+          "Honest LP has supplied liquidity in [tickLower, tickUpper] expecting LP fees from swap volume"
+        ],
+        "setup_calls": [
+          "Admin sets dexKey.controller = MaliciousFeeController and flips fetchDynamicFee flag ON",
+          "LP calls deposit() to provide liquidity expecting fee accrual",
+          "Swappers route trades through the pool"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "feeGrowthGlobal0X102 and feeGrowthGlobal1X102 remain unchanged after swap volume; LP withdraw returns zero feeAccruedToken0/1 despite non-trivial swap volume across the position's tick range",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Controller deploys MaliciousFeeController whose fetchDynamicFeeForSwapIn() / fetchDynamicFeeForSwapOut() always return abi.encode(uint256(0), true) \u2014 exactly 64 bytes, success=true.",
+        "At swapModuleInternals.sol L77-L83: low-level call succeeds, returnData_.length == 64. abi.decode yields fetchedDynamicFee_=0 and overrideDynamicFee_=true.",
+        "Bound check at L80 'if (fetchedDynamicFee_ > X16) overrideDynamicFee_ = false' does NOT trigger because 0 <= X16. The override remains active.",
+        "Branch at L86 takes overrideDynamicFee_ == true: v_.isConstantLpFee = true; v_.constantLpFee = 0.",
+        "In the swap loop at L156-L159: 'if (stepAmountOutRaw_ > 0 && v_.constantLpFee > 0) stepLpFeeRaw_ = ...' \u2014 short-circuits because constantLpFee == 0. stepLpFeeRaw_ stays 0.",
+        "feeGrowthGlobal{0,1}X102 update at L207-L211: 'feeGrowthGlobal{0,1}X102 += ((stepLpFeeRaw_ * exchangePrice) / EXCHANGE_PRICES_PRECISION) << 102 / activeLiquidity_' adds ZERO because stepLpFeeRaw_ == 0.",
+        "Across thousands of swaps over hours/days, LPs in the active tick range receive ZERO LP fees while the controller's malicious returnvalue silently zeroes every swap's fee \u2014 even from swappers who never interacted with the controller.",
+        "Symmetric DoS-griefing variant: returning (X16, true) \u2014 exactly 65535 (= 6.5535%) \u2014 passes the L80 bound check (only > X16 is rejected, equality accepted) and combined with high protocolCutFee inflates output-side fee deduction to make swaps revert in slippage checks for honest users."
+      ],
+      "preconditions": [
+        "DEX pool has FETCH_DYNAMIC_FEE_FLAG == 1 (set by admin during initialization or via update)",
+        "dexKey.controller is mutable per pool (set at admin module level)",
+        "The msg.sender of the swap is NOT the controller (the controller-self path skips the fetch)"
+      ],
+      "rationale": "Bound check is one-sided (only upper bound > X16 rejected). Zero LP fee is permitted as a 'valid' override return, violating the implicit invariant that an LP earns fees proportional to (volume * fee_rate) when they hold liquidity in an active range. KG-similar incidents: 2023-04 Allbridge (oracle-controlled fee), 2023-07 ArcadiaFi (price-feed override). Fluid Dex specifically inherits this surface from dynamic-fee design choice. Even if controller is admin-trusted, the *silent per-swap* nature means a single malicious deploy bypasses all governance/timelock event-monitoring expected for protocol fee changes.",
+      "verification": {
+        "status": "candidate",
+        "evidence": "Static reading of swapModuleInternals.sol L70-L96 (swapIn) and L394-L422 (swapOut); _validateLPFee at helpers.sol L696 confirms 0 is also a valid LP fee but the *per-swap* override path bypasses any admin-fee floor enforcement."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_full-2",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "CommonUserModuleInternals (dexV2 d3d4common)",
+        "function": "_addLiquidity(AddLiquidityInternalParams) \u2014 smart-debt path",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/userModuleInternals.sol",
+        "lines": "L34-L52 (smart-debt rounding-up + getAmountsForLiquidity recompute)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "borrower",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          }
+        ],
+        "deployments": [
+          "deploy:FluidDexV2D4UserModule (smart debt) instance",
+          "addr:<initialised D4 pool with non-zero reserves>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Pool is initialized (sqrtPriceX96 != 0).",
+          "Borrower is whitelisted: _whitelistedUsers[4][borrower] == 1.",
+          "Borrower controls position salt to keccak fresh positions per call."
+        ],
+        "setup_calls": [
+          "Admin whitelists borrower via _updateUserWhitelist.",
+          "Pool already has supply liquidity in adjacent tick ranges (from honest LPs in D3)."
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After N calls to borrow() with minimal amount0/amount1, sum_i(positionData_.liquidity_i) > sum_i(LA.getLiquidityForAmounts(... amount0_i, amount1_i)). The aggregated liquidity over many tiny borrows exceeds what the underlying token reserves justify, allowing the attacker to over-borrow against under-reserved positions.",
+        "min_profit_wei": "1e15"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Compute the smallest non-zero borrow amounts that survive _verifyAdjustedAmountLimits and _verifyReserveAndDebtLimits.",
+        "Call borrow() with isSmartCollateral=false (D4 path). Internal _addLiquidity at L40-L42 applies 'liquidityIncreaseRaw_ = ((liquidityIncreaseRaw_ * (R+1)) / R) + 1' \u2014 strictly INFLATES liquidity beyond what user's amount0/amount1 justify.",
+        "_addLiquidity then re-derives reserves with getAmountsForLiquidity using the inflated liquidity (L46-L51). Returned amount0Raw_ / amount1Raw_ are larger than the user's input desired amounts.",
+        "Caller (d4 borrow) takes these inflated reserves and converts them to debt via _getDebtAmountsFromReserves \u2014 debt is also inflated.",
+        "Critical dust-effect: the '+ 1' constant added unconditionally accrues across each call. After K borrow() iterations on tiny positions (different positionSalt each), accumulated 'free liquidity' = K added with bounded extra reserves \u2014 pool's recorded liquidity is greater than the sum of token reserves it actually backs.",
+        "Subsequent legitimate liquidations / withdrawals draw down reserves at the inflated debt scale; the protocol becomes under-collateralized.",
+        "Attacker repeats borrow + immediate payback (or borrow + withdraw of position) ratcheting up share of pool liquidity per token deposited."
+      ],
+      "preconditions": [
+        "Borrower is whitelisted for D4 (admin gate).",
+        "Pool min/max amount limits are gameable \u2014 attacker can find amount0/amount1 that yield liquidityIncreaseRaw_ > 0 but where the +1 dust is significant relative to position size."
+      ],
+      "rationale": "The unconditional '+ 1' on rounded-up liquidity is dust per call but compounds across many positions. Distinct from the documented 'protocol-on-winning-side' direction because it is applied to LIQUIDITY (a state quantity tracked across positions) rather than to a transient amount. The recomputed amounts/debt scale linearly with this inflated liquidity, breaking the invariant that sum(position liquidity) \u2248 implied liquidity from total reserves.",
+      "verification": {
+        "status": "candidate",
+        "evidence": "Static reading of userModuleInternals.sol L34-L52 (smart-debt branch); compare D3 path which rounds DOWN with no +1 added. The asymmetry in rounding direction means smart-debt positions claim MORE liquidity per token than smart-collateral positions, which would only be safe if separately accounted \u2014 but _addLiquidity is shared."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_full-3",
+      "vuln_class": "arithmetic",
+      "target": {
+        "contract": "Helpers (dexV2 d3d4common)",
+        "function": "_calculateDynamicFeeVariables(uint256 sqrtPriceX96_, bool swap0To1_, uint256 dexVariables2_)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/helpers.sol",
+        "lines": "L161-L210 (timestamp 15-bit truncation + decay logic)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2 D3 or D4 pool with feeVersion == 1 (dynamic fee enabled)>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Pool feeVersion == 1 (dynamic fee path active)",
+          "Pool has non-zero netPriceImpact and non-zero decayTimeRemaining stored from prior heavy-volume period",
+          "No swaps occur for at least 32768 seconds (~9.1 hours) \u2014 covering one or more 15-bit timestamp wraps"
+        ],
+        "setup_calls": [
+          "Phase 1: attacker performs heavy swap volume that pushes |finalNetPriceImpact_| close to maxFee/divisionFactor cap, sets DECAY_TIME_REMAINING to 4095s.",
+          "Phase 2: wait for 32768 + \u0394 seconds where \u0394 is small (e.g. 60s) so newLastUpdateTimestamp_ % X15 \u2248 original lastUpdateTimestamp_ + \u0394.",
+          "Phase 3: attacker performs the *first* swap of the new wrap window."
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After the wrap-around swap, dexVariables2 still encodes a non-zero ABSOLUTE_NET_PRICE_IMPACT, even though wall-clock decayTimeRemaining + \u0394 has elapsed since the last update \u2014 i.e. the decay is at least 32768 seconds OVERDUE relative to its own logic.",
+        "min_profit_wei": "1e15"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "L168 stores `newLastUpdateTimestamp_ = block.timestamp & X15` \u2014 only the low 15 bits of block.timestamp.",
+        "L171-L181: If newLastUpdateTimestamp_ < lastUpdateTimestamp_, code adds X15+1 (i.e. 32768s) and computes `timeElapsed_ = X15 + 1 + new - last`. If the wrap is exactly one cycle the math is correct, but if MULTIPLE wraps occurred (\u22652 \u00d7 32768s = 18.2h+), timeElapsed_ underestimates by k\u00d732768 seconds.",
+        "L173-L177 comments acknowledge: 'More time than this might have passed, but we assume the minimum'. The author intentionally uses the minimum timeElapsed_, but compares it against decayTimeRemaining_ which is bounded by X12 = 4095s.",
+        "Branch at L186 `if (timeElapsed_ < decayTimeRemaining_)` is reached when wrapped-modulo elapsed appears small. The decay update L190 `netPriceImpact_ * (decayTimeRemaining_ - timeElapsed_) / decayTimeRemaining_` preserves a fraction of the price-impact memory that should have decayed to zero many hours ago.",
+        "Attacker exploits stale netPriceImpact_ to either (a) get systematically lower fees on subsequent swaps (if pool's own feeKink is favorable) or (b) trigger artificial maxFee branches on a competing user's swap (DoS griefing).",
+        "Specifically, the netPriceImpact_ feeds into L209 `d_.zeroPriceImpactPriceX96` which directly sets the swap-time fee curve. A stale POSITIVE netPriceImpact_ on a pool where actual price has already mean-reverted means the fee model over-charges or under-charges every subsequent swap until a 'real' large swap re-syncs it."
+      ],
+      "preconditions": [
+        "Pool uses feeVersion 1 (dynamic fee). Set by controller via _updateFeeVersion1.",
+        "decayTimeRemaining_ is at most X12 = 4095s, so any pool inactivity > ~68min already exceeds the decay window \u2014 yet the bug only triggers ONCE per wrap window.",
+        "Low-volume pools (small altcoin pairs) most exposed: may have multiple 9-hour gaps without organic swaps."
+      ],
+      "rationale": "The 'assume minimum elapsed' strategy is correct *only* if the 15-bit timestamp can never wrap more than once between calls. In a low-volume pool this assumption fails. The author's comment ('More time than this might have passed, but we assume the minimum') confirms the sub-optimal handling, but the consequence \u2014 a fee curve frozen with stale net price impact \u2014 is silent and persistent. A 15-bit timestamp window (32768s) is shorter than common DEX inactivity windows for small pairs, especially on L2s during low-activity hours.",
+      "verification": {
+        "status": "candidate",
+        "evidence": "Static reading of helpers.sol L161-L210; bit-position check (LAST_UPDATE_TIMESTAMP=229 width 15, DECAY_TIME_REMAINING=244 width 12) confirmed in dexV2D3D4CommonSlotsLink.sol L56-L57. The MAX decayTimeRemaining 4095s is documented and matches X12."
+      }
+    }
+  ],
+  "verified": [
+    {
+      "id": "contest_fluid_dex_v2_full-1",
+      "vuln_class": "access_control",
+      "target": {
+        "contract": "CommonSwapModuleInternals (dexV2 d3d4common)",
+        "function": "_swapIn(SwapInInternalParams) / _swapOut(SwapOutInternalParams)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/swapModuleInternals.sol",
+        "lines": "L75-L93 (swapIn), L405-L423 (swapOut)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "controller",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          },
+          {
+            "name": "swapper",
+            "role": "user"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "deploy:MaliciousFeeController exposing fetchDynamicFeeForSwapIn/Out returning abi.encode(uint256(0), true)",
+          "deploy:FluidDexV2D3 (or D4) instance with controller = MaliciousFeeController",
+          "addr:<existing FluidDexV2D3 pool with fetchDynamicFee flag enabled>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "dexVariables2 BITS_DEX_V2_VARIABLES2_FETCH_DYNAMIC_FEE_FLAG == 1 (controller-driven dynamic fee enabled)",
+          "dexKey.controller is set to MaliciousFeeController address",
+          "Pool has non-zero active liquidity in current tick range",
+          "Honest LP has supplied liquidity in [tickLower, tickUpper] expecting LP fees from swap volume"
+        ],
+        "setup_calls": [
+          "Admin sets dexKey.controller = MaliciousFeeController and flips fetchDynamicFee flag ON",
+          "LP calls deposit() to provide liquidity expecting fee accrual",
+          "Swappers route trades through the pool"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "feeGrowthGlobal0X102 and feeGrowthGlobal1X102 remain unchanged after swap volume; LP withdraw returns zero feeAccruedToken0/1 despite non-trivial swap volume across the position's tick range",
+        "min_profit_wei": "1e16"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Controller deploys MaliciousFeeController whose fetchDynamicFeeForSwapIn() / fetchDynamicFeeForSwapOut() always return abi.encode(uint256(0), true) \u2014 exactly 64 bytes, success=true.",
+        "At swapModuleInternals.sol L77-L83: low-level call succeeds, returnData_.length == 64. abi.decode yields fetchedDynamicFee_=0 and overrideDynamicFee_=true.",
+        "Bound check at L80 'if (fetchedDynamicFee_ > X16) overrideDynamicFee_ = false' does NOT trigger because 0 <= X16. The override remains active.",
+        "Branch at L86 takes overrideDynamicFee_ == true: v_.isConstantLpFee = true; v_.constantLpFee = 0.",
+        "In the swap loop at L156-L159: 'if (stepAmountOutRaw_ > 0 && v_.constantLpFee > 0) stepLpFeeRaw_ = ...' \u2014 short-circuits because constantLpFee == 0. stepLpFeeRaw_ stays 0.",
+        "feeGrowthGlobal{0,1}X102 update at L207-L211: 'feeGrowthGlobal{0,1}X102 += ((stepLpFeeRaw_ * exchangePrice) / EXCHANGE_PRICES_PRECISION) << 102 / activeLiquidity_' adds ZERO because stepLpFeeRaw_ == 0.",
+        "Across thousands of swaps over hours/days, LPs in the active tick range receive ZERO LP fees while the controller's malicious returnvalue silently zeroes every swap's fee \u2014 even from swappers who never interacted with the controller.",
+        "Symmetric DoS-griefing variant: returning (X16, true) \u2014 exactly 65535 (= 6.5535%) \u2014 passes the L80 bound check (only > X16 is rejected, equality accepted) and combined with high protocolCutFee inflates output-side fee deduction to make swaps revert in slippage checks for honest users."
+      ],
+      "preconditions": [
+        "DEX pool has FETCH_DYNAMIC_FEE_FLAG == 1 (set by admin during initialization or via update)",
+        "dexKey.controller is mutable per pool (set at admin module level)",
+        "The msg.sender of the swap is NOT the controller (the controller-self path skips the fetch)"
+      ],
+      "rationale": "Bound check is one-sided (only upper bound > X16 rejected). Zero LP fee is permitted as a 'valid' override return, violating the implicit invariant that an LP earns fees proportional to (volume * fee_rate) when they hold liquidity in an active range. KG-similar incidents: 2023-04 Allbridge (oracle-controlled fee), 2023-07 ArcadiaFi (price-feed override). Fluid Dex specifically inherits this surface from dynamic-fee design choice. Even if controller is admin-trusted, the *silent per-swap* nature means a single malicious deploy bypasses all governance/timelock event-monitoring expected for protocol fee changes.",
+      "verification": {
+        "status": "candidate",
+        "evidence": "Static reading of swapModuleInternals.sol L70-L96 (swapIn) and L394-L422 (swapOut); _validateLPFee at helpers.sol L696 confirms 0 is also a valid LP fee but the *per-swap* override path bypasses any admin-fee floor enforcement."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_full-2",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "CommonUserModuleInternals (dexV2 d3d4common)",
+        "function": "_addLiquidity(AddLiquidityInternalParams) \u2014 smart-debt path",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/userModuleInternals.sol",
+        "lines": "L34-L52 (smart-debt rounding-up + getAmountsForLiquidity recompute)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "borrower",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          }
+        ],
+        "deployments": [
+          "deploy:FluidDexV2D4UserModule (smart debt) instance",
+          "addr:<initialised D4 pool with non-zero reserves>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Pool is initialized (sqrtPriceX96 != 0).",
+          "Borrower is whitelisted: _whitelistedUsers[4][borrower] == 1.",
+          "Borrower controls position salt to keccak fresh positions per call."
+        ],
+        "setup_calls": [
+          "Admin whitelists borrower via _updateUserWhitelist.",
+          "Pool already has supply liquidity in adjacent tick ranges (from honest LPs in D3)."
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After N calls to borrow() with minimal amount0/amount1, sum_i(positionData_.liquidity_i) > sum_i(LA.getLiquidityForAmounts(... amount0_i, amount1_i)). The aggregated liquidity over many tiny borrows exceeds what the underlying token reserves justify, allowing the attacker to over-borrow against under-reserved positions.",
+        "min_profit_wei": "1e15"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Compute the smallest non-zero borrow amounts that survive _verifyAdjustedAmountLimits and _verifyReserveAndDebtLimits.",
+        "Call borrow() with isSmartCollateral=false (D4 path). Internal _addLiquidity at L40-L42 applies 'liquidityIncreaseRaw_ = ((liquidityIncreaseRaw_ * (R+1)) / R) + 1' \u2014 strictly INFLATES liquidity beyond what user's amount0/amount1 justify.",
+        "_addLiquidity then re-derives reserves with getAmountsForLiquidity using the inflated liquidity (L46-L51). Returned amount0Raw_ / amount1Raw_ are larger than the user's input desired amounts.",
+        "Caller (d4 borrow) takes these inflated reserves and converts them to debt via _getDebtAmountsFromReserves \u2014 debt is also inflated.",
+        "Critical dust-effect: the '+ 1' constant added unconditionally accrues across each call. After K borrow() iterations on tiny positions (different positionSalt each), accumulated 'free liquidity' = K added with bounded extra reserves \u2014 pool's recorded liquidity is greater than the sum of token reserves it actually backs.",
+        "Subsequent legitimate liquidations / withdrawals draw down reserves at the inflated debt scale; the protocol becomes under-collateralized.",
+        "Attacker repeats borrow + immediate payback (or borrow + withdraw of position) ratcheting up share of pool liquidity per token deposited."
+      ],
+      "preconditions": [
+        "Borrower is whitelisted for D4 (admin gate).",
+        "Pool min/max amount limits are gameable \u2014 attacker can find amount0/amount1 that yield liquidityIncreaseRaw_ > 0 but where the +1 dust is significant relative to position size."
+      ],
+      "rationale": "The unconditional '+ 1' on rounded-up liquidity is dust per call but compounds across many positions. Distinct from the documented 'protocol-on-winning-side' direction because it is applied to LIQUIDITY (a state quantity tracked across positions) rather than to a transient amount. The recomputed amounts/debt scale linearly with this inflated liquidity, breaking the invariant that sum(position liquidity) \u2248 implied liquidity from total reserves.",
+      "verification": {
+        "status": "candidate",
+        "evidence": "Static reading of userModuleInternals.sol L34-L52 (smart-debt branch); compare D3 path which rounds DOWN with no +1 added. The asymmetry in rounding direction means smart-debt positions claim MORE liquidity per token than smart-collateral positions, which would only be safe if separately accounted \u2014 but _addLiquidity is shared."
+      }
+    },
+    {
+      "id": "contest_fluid_dex_v2_full-3",
+      "vuln_class": "arithmetic",
+      "target": {
+        "contract": "Helpers (dexV2 d3d4common)",
+        "function": "_calculateDynamicFeeVariables(uint256 sqrtPriceX96_, bool swap0To1_, uint256 dexVariables2_)",
+        "file": "contracts/protocols/dexV2/dexTypes/common/d3d4common/helpers.sol",
+        "lines": "L161-L210 (timestamp 15-bit truncation + decay logic)"
+      },
+      "initial_state": {
+        "fork": {
+          "chain": "mainnet"
+        },
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "100000000000000000000"
+          },
+          {
+            "name": "lp",
+            "role": "victim"
+          }
+        ],
+        "deployments": [
+          "addr:<FluidDexV2 D3 or D4 pool with feeVersion == 1 (dynamic fee enabled)>"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Pool feeVersion == 1 (dynamic fee path active)",
+          "Pool has non-zero netPriceImpact and non-zero decayTimeRemaining stored from prior heavy-volume period",
+          "No swaps occur for at least 32768 seconds (~9.1 hours) \u2014 covering one or more 15-bit timestamp wraps"
+        ],
+        "setup_calls": [
+          "Phase 1: attacker performs heavy swap volume that pushes |finalNetPriceImpact_| close to maxFee/divisionFactor cap, sets DECAY_TIME_REMAINING to 4095s.",
+          "Phase 2: wait for 32768 + \u0394 seconds where \u0394 is small (e.g. 60s) so newLastUpdateTimestamp_ % X15 \u2248 original lastUpdateTimestamp_ + \u0394.",
+          "Phase 3: attacker performs the *first* swap of the new wrap window."
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After the wrap-around swap, dexVariables2 still encodes a non-zero ABSOLUTE_NET_PRICE_IMPACT, even though wall-clock decayTimeRemaining + \u0394 has elapsed since the last update \u2014 i.e. the decay is at least 32768 seconds OVERDUE relative to its own logic.",
+        "min_profit_wei": "1e15"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "L168 stores `newLastUpdateTimestamp_ = block.timestamp & X15` \u2014 only the low 15 bits of block.timestamp.",
+        "L171-L181: If newLastUpdateTimestamp_ < lastUpdateTimestamp_, code adds X15+1 (i.e. 32768s) and computes `timeElapsed_ = X15 + 1 + new - last`. If the wrap is exactly one cycle the math is correct, but if MULTIPLE wraps occurred (\u22652 \u00d7 32768s = 18.2h+), timeElapsed_ underestimates by k\u00d732768 seconds.",
+        "L173-L177 comments acknowledge: 'More time than this might have passed, but we assume the minimum'. The author intentionally uses the minimum timeElapsed_, but compares it against decayTimeRemaining_ which is bounded by X12 = 4095s.",
+        "Branch at L186 `if (timeElapsed_ < decayTimeRemaining_)` is reached when wrapped-modulo elapsed appears small. The decay update L190 `netPriceImpact_ * (decayTimeRemaining_ - timeElapsed_) / decayTimeRemaining_` preserves a fraction of the price-impact memory that should have decayed to zero many hours ago.",
+        "Attacker exploits stale netPriceImpact_ to either (a) get systematically lower fees on subsequent swaps (if pool's own feeKink is favorable) or (b) trigger artificial maxFee branches on a competing user's swap (DoS griefing).",
+        "Specifically, the netPriceImpact_ feeds into L209 `d_.zeroPriceImpactPriceX96` which directly sets the swap-time fee curve. A stale POSITIVE netPriceImpact_ on a pool where actual price has already mean-reverted means the fee model over-charges or under-charges every subsequent swap until a 'real' large swap re-syncs it."
+      ],
+      "preconditions": [
+        "Pool uses feeVersion 1 (dynamic fee). Set by controller via _updateFeeVersion1.",
+        "decayTimeRemaining_ is at most X12 = 4095s, so any pool inactivity > ~68min already exceeds the decay window \u2014 yet the bug only triggers ONCE per wrap window.",
+        "Low-volume pools (small altcoin pairs) most exposed: may have multiple 9-hour gaps without organic swaps."
+      ],
+      "rationale": "The 'assume minimum elapsed' strategy is correct *only* if the 15-bit timestamp can never wrap more than once between calls. In a low-volume pool this assumption fails. The author's comment ('More time than this might have passed, but we assume the minimum') confirms the sub-optimal handling, but the consequence \u2014 a fee curve frozen with stale net price impact \u2014 is silent and persistent. A 15-bit timestamp window (32768s) is shorter than common DEX inactivity windows for small pairs, especially on L2s during low-activity hours.",
+      "verification": {
+        "status": "candidate",
+        "evidence": "Static reading of helpers.sol L161-L210; bit-position check (LAST_UPDATE_TIMESTAMP=229 width 15, DECAY_TIME_REMAINING=244 width 12) confirmed in dexV2D3D4CommonSlotsLink.sol L56-L57. The MAX decayTimeRemaining 4095s is documented and matches X12."
+      }
+    }
+  ],
+  "cost_usd": 3.1795465,
+  "elapsed_sec": 400.462,
+  "exit_code": 0
+}

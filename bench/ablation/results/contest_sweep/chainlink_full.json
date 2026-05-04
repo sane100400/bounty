@@ -1,0 +1,379 @@
+{
+  "case_id": "contest_chainlink_full",
+  "mode": "claude-cli",
+  "model": null,
+  "stub": false,
+  "tool_calls": 25,
+  "turns": 25,
+  "hypotheses": [
+    {
+      "id": "chainlink-auction-bidder-assetin-locked-001",
+      "vuln_class": "invariant_break_other",
+      "target": {
+        "contract": "AuctionBidder",
+        "function": "bid(address,uint256,Call[])",
+        "file": "src/AuctionBidder.sol",
+        "lines": "L65-L92"
+      },
+      "initial_state": {
+        "actors": [
+          {
+            "name": "bidder",
+            "role": "user"
+          },
+          {
+            "name": "receiver",
+            "role": "user"
+          }
+        ],
+        "deployments": [
+          "deploy:GPV2CompatibleAuction",
+          "deploy:AuctionBidder"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "auction has live auction for assetIn (e.g. USDC)",
+          "AuctionBidder has been pre-funded with assetOut (LINK) balance >= assetOutAmount"
+        ],
+        "setup_calls": [
+          "_startAuction(USDC, 100_000e6)",
+          "_fundBidder(10_000e18)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "IERC20(assetIn).balanceOf(address(auctionBidder)) > 0 after empty-solution bid (assetIn is stuck/locked, not swept to receiver)",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "1. Admin starts USDC auction via performUpkeep.",
+        "2. AuctionBidder is funded with LINK (assetOut).",
+        "3. Bidder calls AuctionBidder.bid(USDC, amount, solution=[]) \u2014 empty solution path.",
+        "4. AuctionBidder forceApproves LINK to auction (line 78), then calls auction.bid().",
+        "5. BaseAuction.bid: transfers `amount` USDC to AuctionBidder (msg.sender), then pulls assetOutAmount LINK back.",
+        "6. After auction.bid returns, AuctionBidder line 83-91 only sweeps remaining assetOut (LINK) to receiver, NOT the gained assetIn (USDC).",
+        "7. USDC remains stuck in AuctionBidder until DEFAULT_ADMIN calls withdraw()."
+      ],
+      "preconditions": [
+        "AUCTION_BIDDER_ROLE called bid() with empty solution array (intended for cases where bidder pre-holds assetOut)",
+        "Receiver address is non-zero"
+      ],
+      "triage": {
+        "score": 0.3,
+        "status": "candidate",
+        "drop_reason": "Likely intended behavior \u2014 design assumes bidder either uses callback solution to convert assetIn\u2192assetOut, or admin sweeps via withdraw(). Severity QA at most. Bidder receives the assetIn (auction discount), so funds aren't lost \u2014 just locked at the bidder contract level. Documented in auctionCallback semantics."
+      }
+    },
+    {
+      "id": "chainlink-gpv2-partial-fill-balance-dos-002",
+      "vuln_class": "dos_griefing",
+      "target": {
+        "contract": "GPV2CompatibleAuction",
+        "function": "isValidSignature(bytes32,bytes)",
+        "file": "src/GPV2CompatibleAuction.sol",
+        "lines": "L119-L176"
+      },
+      "initial_state": {
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "cowSolver",
+            "role": "user"
+          }
+        ],
+        "deployments": [
+          "deploy:GPV2CompatibleAuction"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "auction has live auction for assetIn (e.g. WETH) with sellAmount = totalAuctionAmount in CowSwap order",
+          "Order has been broadcast to CowSwap orderbook with order.sellAmount equal to start-of-auction balance"
+        ],
+        "setup_calls": [
+          "_startAuction(WETH, 100e18)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After ANY direct-bid that reduces balance below order.sellAmount, isValidSignature reverts InsufficientAssetInBalance for the FULL remainder of the order, even though partial fills should still be possible. The CowSwap order is permanently bricked until next periodic order update.",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "1. Auction starts with WETH balance = 100e18 and CowSwap order broadcast with sellAmount = 100e18.",
+        "2. Attacker calls auction.bid(WETH, 1e18, ...) directly \u2014 paying assetOut for 1 WETH at auction discount (entirely permitted permissionless action).",
+        "3. WETH balance now = 99e18, but CowSwap order's sellAmount = 100e18.",
+        "4. Any CowSwap solver attempting to settle the order calls auction.isValidSignature.",
+        "5. Line 144-146: assetInBalance=99e18 < order.sellAmount=100e18 \u2192 reverts InsufficientAssetInBalance.",
+        "6. Solver cannot fill ANY portion of the order, even though up to 99e18 remain available.",
+        "7. CowSwap solvers cannot fulfill until next periodic order refresh (off-chain, slow).",
+        "8. Repeating step 2 with tiny amount on every order refresh creates persistent DoS for CowSwap channel."
+      ],
+      "preconditions": [
+        "Attacker has any tiny amount of assetOut (LINK) to bid with",
+        "CowSwap order updates are infrequent (e.g. every N minutes per spec)"
+      ],
+      "triage": {
+        "score": 0.5,
+        "status": "candidate",
+        "drop_reason": "Already documented as known issue: README publicly known issues section says 'Concurrent participants ... will both affect auctioned asset balances ... when a non CowSwap solver bids on the auction, the limit order quantity becomes stale on the CowSwap orderbook until the next workflow run. This may lead to failed orders attempted by solvers trying to fill 100% of the order during that time window.' This is acknowledged but the mitigation (next workflow run) is the intended behavior."
+      }
+    },
+    {
+      "id": "chainlink-pricemanager-stale-streams-overrides-fresh-feed-003",
+      "vuln_class": "oracle_manipulation",
+      "target": {
+        "contract": "PriceManager",
+        "function": "_getAssetPrice(address,bool)",
+        "file": "src/PriceManager.sol",
+        "lines": "L372-L419"
+      },
+      "initial_state": {
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          }
+        ],
+        "deployments": [
+          "deploy:GPV2CompatibleAuction"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Asset has BOTH a Data Streams feed (with stale streams price) AND a Chainlink data feed (fresh)",
+          "DataStreams stored timestamp is OLDER than dataFeed.latestRoundData.updatedAt"
+        ],
+        "setup_calls": [
+          "transmit valid streams price for asset",
+          "skip(stalenessThreshold + 1) to make streams stale",
+          "Chainlink feed posts fresh round"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "When dataFeedUpdatedAt > priceInfo.timestamp AND streams price is stale, the function correctly switches to the data-feed price. However the inner branch at L390 only executes if the OUTER condition (streams stale + dataFeed configured) is met. If priceInfo.timestamp is FRESH but dataFeed is FRESHER and reports a different value, the function NEVER consults the data feed \u2014 protocol uses streams even when data feed is more recent. There is no fallback consistency check, allowing a stale streams price (within window) to override a more recent data feed reading.",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "1. Asset configured with both streams feed and Chainlink data feed.",
+        "2. PRICE_ADMIN transmits a streams price P1 at time T1.",
+        "3. Time T1+staleness/2 elapses (streams still 'fresh' per protocol).",
+        "4. Chainlink data feed updates to a new round with significantly different price P2 at time T2 > T1.",
+        "5. _getAssetPrice is called. Outer if (L385) checks streams staleness \u2014 streams is NOT stale (T1+staleness/2 < block.timestamp - staleness is false). Inner branch is skipped entirely.",
+        "6. Function returns streams price P1, ignoring the more recent dataFeed price P2.",
+        "7. If P1 < real price, attacker can bid at the discounted on-chain price compared to actual market.",
+        "8. Note: practical exploitability depends on PRICE_ADMIN cadence vs market volatility \u2014 design assumes streams takes priority but doesn't fall back to fresher data feed when streams is stalecal-but-not-yet-stale-per-protocol."
+      ],
+      "preconditions": [
+        "Streams price is fresh per protocol staleness threshold (e.g. 1 hour)",
+        "Chainlink data feed has even more recent update with different price"
+      ],
+      "triage": {
+        "score": 0.25,
+        "status": "candidate",
+        "drop_reason": "Likely intended design \u2014 code comment at L364 says 'function prioritizes the Data Streams price'. Data Streams is meant to be the canonical source; data feed is FALLBACK only when streams is stale. This is a documented design choice, not a bug. Acknowledged trust in PRICE_ADMIN and Data Streams freshness."
+      }
+    }
+  ],
+  "verified": [
+    {
+      "id": "chainlink-auction-bidder-assetin-locked-001",
+      "vuln_class": "invariant_break_other",
+      "target": {
+        "contract": "AuctionBidder",
+        "function": "bid(address,uint256,Call[])",
+        "file": "src/AuctionBidder.sol",
+        "lines": "L65-L92"
+      },
+      "initial_state": {
+        "actors": [
+          {
+            "name": "bidder",
+            "role": "user"
+          },
+          {
+            "name": "receiver",
+            "role": "user"
+          }
+        ],
+        "deployments": [
+          "deploy:GPV2CompatibleAuction",
+          "deploy:AuctionBidder"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "auction has live auction for assetIn (e.g. USDC)",
+          "AuctionBidder has been pre-funded with assetOut (LINK) balance >= assetOutAmount"
+        ],
+        "setup_calls": [
+          "_startAuction(USDC, 100_000e6)",
+          "_fundBidder(10_000e18)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "IERC20(assetIn).balanceOf(address(auctionBidder)) > 0 after empty-solution bid (assetIn is stuck/locked, not swept to receiver)",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "1. Admin starts USDC auction via performUpkeep.",
+        "2. AuctionBidder is funded with LINK (assetOut).",
+        "3. Bidder calls AuctionBidder.bid(USDC, amount, solution=[]) \u2014 empty solution path.",
+        "4. AuctionBidder forceApproves LINK to auction (line 78), then calls auction.bid().",
+        "5. BaseAuction.bid: transfers `amount` USDC to AuctionBidder (msg.sender), then pulls assetOutAmount LINK back.",
+        "6. After auction.bid returns, AuctionBidder line 83-91 only sweeps remaining assetOut (LINK) to receiver, NOT the gained assetIn (USDC).",
+        "7. USDC remains stuck in AuctionBidder until DEFAULT_ADMIN calls withdraw()."
+      ],
+      "preconditions": [
+        "AUCTION_BIDDER_ROLE called bid() with empty solution array (intended for cases where bidder pre-holds assetOut)",
+        "Receiver address is non-zero"
+      ],
+      "triage": {
+        "score": 0.3,
+        "status": "candidate",
+        "drop_reason": "Likely intended behavior \u2014 design assumes bidder either uses callback solution to convert assetIn\u2192assetOut, or admin sweeps via withdraw(). Severity QA at most. Bidder receives the assetIn (auction discount), so funds aren't lost \u2014 just locked at the bidder contract level. Documented in auctionCallback semantics."
+      }
+    },
+    {
+      "id": "chainlink-gpv2-partial-fill-balance-dos-002",
+      "vuln_class": "dos_griefing",
+      "target": {
+        "contract": "GPV2CompatibleAuction",
+        "function": "isValidSignature(bytes32,bytes)",
+        "file": "src/GPV2CompatibleAuction.sol",
+        "lines": "L119-L176"
+      },
+      "initial_state": {
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          },
+          {
+            "name": "cowSolver",
+            "role": "user"
+          }
+        ],
+        "deployments": [
+          "deploy:GPV2CompatibleAuction"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "auction has live auction for assetIn (e.g. WETH) with sellAmount = totalAuctionAmount in CowSwap order",
+          "Order has been broadcast to CowSwap orderbook with order.sellAmount equal to start-of-auction balance"
+        ],
+        "setup_calls": [
+          "_startAuction(WETH, 100e18)"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "After ANY direct-bid that reduces balance below order.sellAmount, isValidSignature reverts InsufficientAssetInBalance for the FULL remainder of the order, even though partial fills should still be possible. The CowSwap order is permanently bricked until next periodic order update.",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "1. Auction starts with WETH balance = 100e18 and CowSwap order broadcast with sellAmount = 100e18.",
+        "2. Attacker calls auction.bid(WETH, 1e18, ...) directly \u2014 paying assetOut for 1 WETH at auction discount (entirely permitted permissionless action).",
+        "3. WETH balance now = 99e18, but CowSwap order's sellAmount = 100e18.",
+        "4. Any CowSwap solver attempting to settle the order calls auction.isValidSignature.",
+        "5. Line 144-146: assetInBalance=99e18 < order.sellAmount=100e18 \u2192 reverts InsufficientAssetInBalance.",
+        "6. Solver cannot fill ANY portion of the order, even though up to 99e18 remain available.",
+        "7. CowSwap solvers cannot fulfill until next periodic order refresh (off-chain, slow).",
+        "8. Repeating step 2 with tiny amount on every order refresh creates persistent DoS for CowSwap channel."
+      ],
+      "preconditions": [
+        "Attacker has any tiny amount of assetOut (LINK) to bid with",
+        "CowSwap order updates are infrequent (e.g. every N minutes per spec)"
+      ],
+      "triage": {
+        "score": 0.5,
+        "status": "candidate",
+        "drop_reason": "Already documented as known issue: README publicly known issues section says 'Concurrent participants ... will both affect auctioned asset balances ... when a non CowSwap solver bids on the auction, the limit order quantity becomes stale on the CowSwap orderbook until the next workflow run. This may lead to failed orders attempted by solvers trying to fill 100% of the order during that time window.' This is acknowledged but the mitigation (next workflow run) is the intended behavior."
+      }
+    },
+    {
+      "id": "chainlink-pricemanager-stale-streams-overrides-fresh-feed-003",
+      "vuln_class": "oracle_manipulation",
+      "target": {
+        "contract": "PriceManager",
+        "function": "_getAssetPrice(address,bool)",
+        "file": "src/PriceManager.sol",
+        "lines": "L372-L419"
+      },
+      "initial_state": {
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker"
+          }
+        ],
+        "deployments": [
+          "deploy:GPV2CompatibleAuction"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "Asset has BOTH a Data Streams feed (with stale streams price) AND a Chainlink data feed (fresh)",
+          "DataStreams stored timestamp is OLDER than dataFeed.latestRoundData.updatedAt"
+        ],
+        "setup_calls": [
+          "transmit valid streams price for asset",
+          "skip(stalenessThreshold + 1) to make streams stale",
+          "Chainlink feed posts fresh round"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "invariant_violated_custom",
+        "custom_assertion": "When dataFeedUpdatedAt > priceInfo.timestamp AND streams price is stale, the function correctly switches to the data-feed price. However the inner branch at L390 only executes if the OUTER condition (streams stale + dataFeed configured) is met. If priceInfo.timestamp is FRESH but dataFeed is FRESHER and reports a different value, the function NEVER consults the data feed \u2014 protocol uses streams even when data feed is more recent. There is no fallback consistency check, allowing a stale streams price (within window) to override a more recent data feed reading.",
+        "min_profit_wei": "0"
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "1. Asset configured with both streams feed and Chainlink data feed.",
+        "2. PRICE_ADMIN transmits a streams price P1 at time T1.",
+        "3. Time T1+staleness/2 elapses (streams still 'fresh' per protocol).",
+        "4. Chainlink data feed updates to a new round with significantly different price P2 at time T2 > T1.",
+        "5. _getAssetPrice is called. Outer if (L385) checks streams staleness \u2014 streams is NOT stale (T1+staleness/2 < block.timestamp - staleness is false). Inner branch is skipped entirely.",
+        "6. Function returns streams price P1, ignoring the more recent dataFeed price P2.",
+        "7. If P1 < real price, attacker can bid at the discounted on-chain price compared to actual market.",
+        "8. Note: practical exploitability depends on PRICE_ADMIN cadence vs market volatility \u2014 design assumes streams takes priority but doesn't fall back to fresher data feed when streams is stalecal-but-not-yet-stale-per-protocol."
+      ],
+      "preconditions": [
+        "Streams price is fresh per protocol staleness threshold (e.g. 1 hour)",
+        "Chainlink data feed has even more recent update with different price"
+      ],
+      "triage": {
+        "score": 0.25,
+        "status": "candidate",
+        "drop_reason": "Likely intended design \u2014 code comment at L364 says 'function prioritizes the Data Streams price'. Data Streams is meant to be the canonical source; data feed is FALLBACK only when streams is stale. This is a documented design choice, not a bug. Acknowledged trust in PRICE_ADMIN and Data Streams freshness."
+      }
+    }
+  ],
+  "cost_usd": 3.9773527499999997,
+  "elapsed_sec": 756.663,
+  "exit_code": 0
+}

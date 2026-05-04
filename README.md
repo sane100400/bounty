@@ -11,12 +11,16 @@ Two parallel tracks in one workspace:
 
 > **Model**: Claude Opus 4.7 (1M context) — knowledge cutoff January 2026
 >
-> **Research summary**: harness *does* beat raw Opus when you give it room.
-> At budget=3, lift was zero ([docs/08](docs/08-holdout-sweep.md)). At budget=15
-> on a 77-file post-cutoff Sherlock contest (Fluid DEX v2), baseline finds 0,
-> full v2 finds 3 candidates. On the LAXO holdout, full v2 **verifies the
-> actual real-world exploit** as a duplicate of DeFiHackLabs 2026-02 — see
-> [docs/09](docs/09-budget-and-codebase-effects.md).
+> **Research summary**: harness *does* beat raw Opus, but the lift comes
+> from a smaller place than we initially thought. The dramatic Fluid DEX
+> baseline-0 result in [docs/09](docs/09-budget-and-codebase-effects.md)
+> was orientation effect — once both modes get an explicit in-scope file
+> inventory ([docs/10](docs/10-fix-rerun-coverage-tracker-wins.md)),
+> baseline matches full v2 (3 = 3). The **coverage tracker is the load-
+> bearing component**, not KG retrieval or MCGA sink tagging. On the
+> LAXO holdout, full v2 still verified the actual real-world exploit
+> as a duplicate of DeFiHackLabs 2026-02 — KG/MCGA's value may show up
+> in *quality* (verified vs candidate), not in candidate count.
 
 ---
 
@@ -145,7 +149,8 @@ to a per-case Foundry root (used by SCONE-mode runs after `scaffold_forge.py`).
 | KG hard-wired into agent system prompt | ✅ working (`HARNESS_KG=1`) |
 | MCGA sink tagger (16 categories) | ✅ working — correctly flags LAXO `_transfer` lp_sync |
 | Halmos parallel gate | ✅ template + smoke test passing |
-| KG-lift measurement | ✅ At budget=15 on 77-file post-cutoff Sherlock contest: baseline 0 → full v2 3. LAXO full v2 verifies the real-world exploit. |
+| Coverage-tracker lift (N=2) | ✅ Brings baseline 0 → 3 findings on 77-file Fluid DEX. Dominant lift component. |
+| KG/MCGA *additional* lift | 🟡 At N=2 (Fluid + Chainlink), no measurable contribution above coverage tracker. May matter for verified-finding quality, not candidate count. |
 | BCDA/BGA prompt split | ❌ dropped — measured regression |
 
 For the long-form research story (questions, evidence, ceiling, blueprint, in-house experiments), read [docs/README.md](docs/README.md).
