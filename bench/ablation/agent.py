@@ -197,6 +197,31 @@ def _allowed_tools_for_cell() -> list[str]:
     return base
 
 
+def _scone_scaffold(project: Path) -> str:
+    """If <project> looks like a Sourcify-fetched src/ tree (no foundry.toml),
+    run scaffold_forge to add minimal Foundry plumbing so verify.py works.
+    Returns a preamble line documenting the action (or empty)."""
+    if (project / "foundry.toml").exists():
+        return ""
+    if not (project / "src").is_dir() and not list(project.rglob("*.sol")):
+        return ""
+    try:
+        sys.path.insert(0, str(REPO / "harness" / "tools"))
+        from scaffold_forge import scaffold  # type: ignore
+        result = scaffold(project)
+    except Exception as e:
+        return f"(scaffold_forge failed: {type(e).__name__}: {e})\n\n"
+    if not result.get("ok"):
+        return f"(scaffold_forge build failed; see {project}/foundry.toml — {result.get('build_stderr_tail','')[-300:]})\n\n"
+    return (
+        f"## Foundry scaffold (auto-applied for SCONE mode)\n"
+        f"Project at `{project}` had no `foundry.toml` — minimal scaffold "
+        f"applied (forge-std symlink, remappings, build verified). When you "
+        f"submit a hypothesis JSON, set `\"forge_root\": \"{project}\"` so "
+        f"verify.py runs the gates inside the scaffolded project.\n\n"
+    )
+
+
 def _mcga_preamble(project: Path) -> str:
     """When HARNESS_MCGA=1, run sink tagger and inject top external + top
     internal high-density functions as a focused attack-surface block."""
@@ -279,9 +304,11 @@ def run_agent_cli(project: Path, case_id: str, budget_iterations: int = 5) -> di
     before = {p.name for p in findings_dir.glob(f"{case_id}-*.json")}
 
     system = _load_prompt(project, case_id)
+    scone_preamble = _scone_scaffold(project)
     mcga_preamble = _mcga_preamble(project)
     kg_preamble = _kg_preamble(project)
     user_msg = (
+        f"{scone_preamble}"
         f"{mcga_preamble}"
         f"{kg_preamble}"
         f"Find vulnerabilities in the Solidity project at {project}.\n"

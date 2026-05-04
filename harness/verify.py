@@ -35,8 +35,15 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-FORGE_DIR = REPO / "poc-forge"
 HARNESS_DIR = REPO / "harness"
+
+# Per-hypothesis Foundry root override.
+# Hypothesis JSON may set "forge_root": "/path/to/scaffolded/case" to redirect
+# verify away from the repo's poc-forge. Used for SCONE-mode (Sourcify-fetched
+# sources scaffolded by harness/tools/scaffold_forge.py).
+def _forge_dir_for(hyp: dict) -> Path:
+    fr = hyp.get("forge_root")
+    return Path(fr).resolve() if fr else (REPO / "poc-forge")
 
 
 @dataclass
@@ -52,17 +59,17 @@ def run(cmd: list[str], cwd: Path) -> tuple[int, str, str]:
     return p.returncode, p.stdout, p.stderr
 
 
-def gate_compile(test_path: Path) -> GateResult:
-    rc, out, err = run(["forge", "build"], FORGE_DIR)
+def gate_compile(test_path: Path, forge_dir: Path) -> GateResult:
+    rc, out, err = run(["forge", "build"], forge_dir)
     if rc != 0:
         return GateResult("compile", False, detail=err or out, artifact=str(test_path))
     return GateResult("compile", True)
 
 
-def gate_execute(hyp_id: str) -> GateResult:
+def gate_execute(hyp_id: str, forge_dir: Path) -> GateResult:
     rc, out, err = run(
         ["forge", "test", "--match-test", f"testPoC_{hyp_id}", "-vvvv"],
-        FORGE_DIR,
+        forge_dir,
     )
     artifact = out + "\n" + err
     if rc != 0:
@@ -139,13 +146,13 @@ def gate_dup(hyp: dict) -> GateResult:
     return GateResult("dup", True, detail="no static-analysis match")
 
 
-def gate_halmos(hyp: dict) -> GateResult:
+def gate_halmos(hyp: dict, forge_dir: Path) -> GateResult:
     if not hyp.get("invariant", {}).get("halmos_check"):
         return GateResult("halmos", True, detail="not requested")
     fn = hyp["invariant"].get("property_function")
     if not fn:
         return GateResult("halmos", False, detail="halmos_check=true but property_function missing")
-    rc, out, err = run(["halmos", "--function", fn], FORGE_DIR)
+    rc, out, err = run(["halmos", "--function", fn], forge_dir)
     if rc != 0:
         return GateResult("halmos", False, detail=err or out)
     return GateResult("halmos", True)
@@ -168,16 +175,17 @@ def main(argv: list[str]) -> int:
     hyp_path = Path(argv[1])
     hyp = json.loads(hyp_path.read_text())
     hyp_id = hyp["id"]
-    test_path = FORGE_DIR / "test" / f"AttackHarness_{hyp_id}.t.sol"
+    forge_dir = _forge_dir_for(hyp)
+    test_path = forge_dir / "test" / f"AttackHarness_{hyp_id}.t.sol"
 
     results: list[GateResult] = []
-    feedback: dict = {"hypothesis_id": hyp_id, "results": []}
+    feedback: dict = {"hypothesis_id": hyp_id, "results": [], "forge_dir": str(forge_dir)}
 
-    g = gate_compile(test_path); results.append(g)
+    g = gate_compile(test_path, forge_dir); results.append(g)
     if not g.passed:
         return _emit(feedback, results, GATE_EXIT["compile"])
 
-    g = gate_execute(hyp_id); results.append(g)
+    g = gate_execute(hyp_id, forge_dir); results.append(g)
     exec_artifact = g.artifact
     if not g.passed:
         return _emit(feedback, results, GATE_EXIT["execute"])
@@ -194,7 +202,7 @@ def main(argv: list[str]) -> int:
     if not g.passed:
         return _emit(feedback, results, GATE_EXIT["dup"])
 
-    g = gate_halmos(hyp); results.append(g)
+    g = gate_halmos(hyp, forge_dir); results.append(g)
     if not g.passed:
         return _emit(feedback, results, GATE_EXIT["halmos"])
 
