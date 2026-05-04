@@ -91,6 +91,19 @@ You have access to two oracle libraries — import them in PoC tests:
    `python3 harness/tools/source_fetcher.py <chain> <address> <out_dir>`
    to materialize verified source from Sourcify (fallback Etherscan if
    `ETHERSCAN_API_KEY` set). Then proceed with `out_dir` as project root.
+   {{IF HARNESS_KG}}
+   *KG retrieval:* Collect the set of external interfaces this protocol
+   imports (e.g. `IERC20`, `IUniswapV2Pair`, `IFlashLoan`) and run:
+   ```bash
+   echo '{"interfaces":["IERC20","IUniswapV2Pair", ...]}' \
+     | python3 harness/kg/retrieve.py --top-k 5
+   ```
+   Read each returned `file:` (a Foundry PoC of a past incident with the
+   same external surface). Treat these as *candidate hypothesis seeds*,
+   NOT as ground truth — your job is to verify or rule out each pattern
+   against the current target. Cite the incident `id` in your hypothesis
+   `rationale`.
+   {{ENDIF}}
 2. **Hypothesize**: For each promising spot, write a `hypotheses/<id>.json`
    following the schema. Pick `class_invariant` from the libraries above.
 3. **PoC**: Draft `poc-forge/test/AttackHarness_<id>.t.sol` using the template.
