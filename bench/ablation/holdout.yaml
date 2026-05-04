@@ -39,6 +39,20 @@ candidates:
     incident_date: TBD
     notes: "list contests with end_date ≥ 2026-03-01, pick high-paying findings"
 
+  - case_id: cantina-revert-finance-2026
+    source: cantina.xyz/competitions/efb6f308-f13b-4110-aff8-0d67181608dd
+    incident_date: 2026-03-25
+    status: "Reviewing Escalations (findings not yet public — recheck post 2026-05-15)"
+    prize_pool_usd: 50000
+    notes: "First confirmed post-cutoff Cantina contest. Ground truth pending publication."
+
+  - case_id: cantina-royco-dawn-2026
+    source: cantina.xyz/competitions/9c6e38e2-535e-47b2-83ef-29df91fbb774
+    incident_date: 2026-01-27
+    status: "Judging — borderline (5 days before 2026-02-01 cutoff buffer)"
+    prize_pool_usd: 50000
+    notes: "On borderline of cutoff buffer; exclude unless we move cutoff to 2026-01-15."
+
   - case_id: pending-sherlock-2026-001
     source: audits.sherlock.xyz
     incident_date: TBD
