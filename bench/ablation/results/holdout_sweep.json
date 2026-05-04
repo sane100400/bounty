@@ -1,0 +1,1076 @@
+[
+  {
+    "case_id": "holdout_laxo_baseline",
+    "mode": "claude-cli",
+    "model": null,
+    "stub": false,
+    "tool_calls": 19,
+    "turns": 19,
+    "hypotheses": [
+      {
+        "id": "holdout_laxo_baseline-2",
+        "vuln_class": "oracle_manipulation",
+        "forge_root": "/tmp/holdout_sweep/laxo/case",
+        "target": {
+          "contract": "LAXOToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/LAXOToken.sol",
+          "lines": "L68-L78"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "LAXO",
+                  "amount": "small (>=1e9 wei) \u2014 only needs to exist outside fee-exclusion"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:MockProject()",
+            "deploy:LAXOToken(project)",
+            "deployer adds initial LAXO/USDT liquidity to PancakeV2 pair",
+            "owner.startDeflation()  // sets lastDeflationTime > 0",
+            "warp(block.timestamp + 1 hours + 1)"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "lastDeflationTime > 0 (startDeflation has been called)",
+            "block.timestamp - lastDeflationTime >= 1 hours",
+            "isReachedMaxBurn() == false (balanceOf[DEAD] < MAX_BURN = 186_900_000 ether)",
+            "Attacker not in _isExcludedFromFee, sender of triggering transfer != uniswapV2Pair"
+          ],
+          "setup_calls": [
+            "attacker holds any LAXO and calls token.transfer(attacker, 1) \u2014 a self-transfer that costs nothing but ticks the deflation branch"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "invariant_violated_custom",
+          "custom_assertion": "// After a *single* attacker self-transfer (no swap, no liquidity event, no buy/sell), balanceOf[uniswapV2Pair] strictly decreases by floor(balanceOf[pair]_before * 208 / 1_000_000) and pair.sync() is forced. This is a permissionless burn of pair-side LAXO triggered by any holder once per hour, which (a) raises LAXO/USDT spot price (less LAXO in pool \u21d2 each LAXO more USDT) and (b) makes the next sandwiching tx route capture the price delta. Assertion: laxo_pair_after < laxo_pair_before AND IUniswapV2Pair(pair).getReserves().reserve_laxo strictly decreased AND the call was made by an unrelated EOA holding only dust.",
+          "min_profit_wei": "0"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Wait until block.timestamp - lastDeflationTime >= 1 hour (cooldown).",
+          "Call token.transfer(attacker, 1) (or any non-fee-excluded sender\u2192non-pair transfer). Sender != uniswapV2Pair so the L68 branch fires.",
+          "L73-L77 computes deflationAmount = balanceOf[uniswapV2Pair] * 208 / 1_000_000 (~0.0208%) and super._transfer(uniswapV2Pair, DEAD, deflationAmount) physically removes LAXO from the pair without consent. IUniswapV2Pair(pair).sync() then snaps reserves to the new (lower) LAXO balance, immediately moving spot price upward.",
+          "Repeat hourly (or sandwich a buy: attacker buys \u2192 triggers self-transfer to deflate \u2192 sells in the next block at the elevated price). Combined with hypothesis-1's pair-burn-on-sell, the attacker can extract continuous value from any LP without ever providing input liquidity.",
+          "Side-effect: cooperative liquidity providers cannot prevent it without removing liquidity (which is also blocked by L86\u2013L88 unless the pair USDT side is artificially pumped first); they are stuck while pair LAXO bleeds 0.0208% per hour permanently up to MAX_BURN (186.9M)."
+        ],
+        "preconditions": [
+          "owner has called startDeflation() at some point",
+          "Total burned has not yet reached MAX_BURN cap (186_900_000 ether)",
+          "Attacker is a normal EOA (not in fee-exclusion list); requires only the gas to call transfer()"
+        ],
+        "triage": {
+          "score": 0.7,
+          "status": "candidate",
+          "drop_reason": "Verification not executed \u2014 budget cap (3 forge runs) and the BSC-fork + USDT<address(this) deployment-salt requirement make a clean PoC expensive to scaffold. The mechanic is, however, a textual property of LAXOToken._transfer L68-L78 that any reader can confirm: a sender that is neither the pair nor a fee-excluded address triggers a balanceOf[pair]*0.000208 burn followed by sync(). This is structurally a permissionless oracle/pool manipulation \u2014 burn from a *third party's* tokens (the pair's reserve) with no protection on who calls it. Distinct from baseline-1 because no swap or sell flow is required; it is a pure self-transfer griefing+sandwich primitive. Recommend pairing baseline-1 (capture in same tx) and baseline-2 (cooldown trigger) in a follow-up cell with HARNESS_VERIFY=1 and a BSC-archive RPC."
+        }
+      }
+    ],
+    "verified": [
+      {
+        "id": "holdout_laxo_baseline-2",
+        "vuln_class": "oracle_manipulation",
+        "forge_root": "/tmp/holdout_sweep/laxo/case",
+        "target": {
+          "contract": "LAXOToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/LAXOToken.sol",
+          "lines": "L68-L78"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "LAXO",
+                  "amount": "small (>=1e9 wei) \u2014 only needs to exist outside fee-exclusion"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:MockProject()",
+            "deploy:LAXOToken(project)",
+            "deployer adds initial LAXO/USDT liquidity to PancakeV2 pair",
+            "owner.startDeflation()  // sets lastDeflationTime > 0",
+            "warp(block.timestamp + 1 hours + 1)"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "lastDeflationTime > 0 (startDeflation has been called)",
+            "block.timestamp - lastDeflationTime >= 1 hours",
+            "isReachedMaxBurn() == false (balanceOf[DEAD] < MAX_BURN = 186_900_000 ether)",
+            "Attacker not in _isExcludedFromFee, sender of triggering transfer != uniswapV2Pair"
+          ],
+          "setup_calls": [
+            "attacker holds any LAXO and calls token.transfer(attacker, 1) \u2014 a self-transfer that costs nothing but ticks the deflation branch"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "invariant_violated_custom",
+          "custom_assertion": "// After a *single* attacker self-transfer (no swap, no liquidity event, no buy/sell), balanceOf[uniswapV2Pair] strictly decreases by floor(balanceOf[pair]_before * 208 / 1_000_000) and pair.sync() is forced. This is a permissionless burn of pair-side LAXO triggered by any holder once per hour, which (a) raises LAXO/USDT spot price (less LAXO in pool \u21d2 each LAXO more USDT) and (b) makes the next sandwiching tx route capture the price delta. Assertion: laxo_pair_after < laxo_pair_before AND IUniswapV2Pair(pair).getReserves().reserve_laxo strictly decreased AND the call was made by an unrelated EOA holding only dust.",
+          "min_profit_wei": "0"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Wait until block.timestamp - lastDeflationTime >= 1 hour (cooldown).",
+          "Call token.transfer(attacker, 1) (or any non-fee-excluded sender\u2192non-pair transfer). Sender != uniswapV2Pair so the L68 branch fires.",
+          "L73-L77 computes deflationAmount = balanceOf[uniswapV2Pair] * 208 / 1_000_000 (~0.0208%) and super._transfer(uniswapV2Pair, DEAD, deflationAmount) physically removes LAXO from the pair without consent. IUniswapV2Pair(pair).sync() then snaps reserves to the new (lower) LAXO balance, immediately moving spot price upward.",
+          "Repeat hourly (or sandwich a buy: attacker buys \u2192 triggers self-transfer to deflate \u2192 sells in the next block at the elevated price). Combined with hypothesis-1's pair-burn-on-sell, the attacker can extract continuous value from any LP without ever providing input liquidity.",
+          "Side-effect: cooperative liquidity providers cannot prevent it without removing liquidity (which is also blocked by L86\u2013L88 unless the pair USDT side is artificially pumped first); they are stuck while pair LAXO bleeds 0.0208% per hour permanently up to MAX_BURN (186.9M)."
+        ],
+        "preconditions": [
+          "owner has called startDeflation() at some point",
+          "Total burned has not yet reached MAX_BURN cap (186_900_000 ether)",
+          "Attacker is a normal EOA (not in fee-exclusion list); requires only the gas to call transfer()"
+        ],
+        "triage": {
+          "score": 0.7,
+          "status": "candidate",
+          "drop_reason": "Verification not executed \u2014 budget cap (3 forge runs) and the BSC-fork + USDT<address(this) deployment-salt requirement make a clean PoC expensive to scaffold. The mechanic is, however, a textual property of LAXOToken._transfer L68-L78 that any reader can confirm: a sender that is neither the pair nor a fee-excluded address triggers a balanceOf[pair]*0.000208 burn followed by sync(). This is structurally a permissionless oracle/pool manipulation \u2014 burn from a *third party's* tokens (the pair's reserve) with no protection on who calls it. Distinct from baseline-1 because no swap or sell flow is required; it is a pure self-transfer griefing+sandwich primitive. Recommend pairing baseline-1 (capture in same tx) and baseline-2 (cooldown trigger) in a follow-up cell with HARNESS_VERIFY=1 and a BSC-archive RPC."
+        }
+      }
+    ],
+    "cost_usd": 0.9678182500000002,
+    "elapsed_sec": 219.603,
+    "exit_code": 0,
+    "_mode": "baseline",
+    "_wall_outer_sec": 219.68,
+    "case": "laxo",
+    "cell_mode": "baseline"
+  },
+  {
+    "case_id": "holdout_laxo_full",
+    "mode": "claude-cli",
+    "model": null,
+    "stub": false,
+    "tool_calls": 17,
+    "turns": 17,
+    "hypotheses": [
+      {
+        "id": "holdout_laxo_full-3",
+        "vuln_class": "dos_griefing",
+        "target": {
+          "contract": "BaseUSDTWA",
+          "function": "_isAddLiquidity()",
+          "file": "src/contracts/abstract/dex/BaseUSDTWA.sol",
+          "lines": "L12-L17"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc",
+            "block": 0,
+            "rpc": "https://bsc-dataseed.binance.org"
+          },
+          "actors": [
+            {
+              "name": "deployer",
+              "role": "admin"
+            },
+            {
+              "name": "lp",
+              "role": "user",
+              "starting_tokens": [
+                {
+                  "token": "LAXO",
+                  "amount": "1000000e18"
+                },
+                {
+                  "token": "USDT",
+                  "amount": "1000000e18"
+                }
+              ]
+            },
+            {
+              "name": "seller",
+              "role": "victim",
+              "starting_tokens": [
+                {
+                  "token": "LAXO",
+                  "amount": "10000e18"
+                }
+              ]
+            },
+            {
+              "name": "griefer",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "USDT",
+                  "amount": "2e18"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:Project()",
+            "deploy:LAXOToken(project_)",
+            "addr:0x10ED43C718714eb63d5aA57B78B54704E256024E",
+            "addr:0x55d398326f99059fF775485246999027B3197955"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "uniswapV2Pair seeded with USDT/LAXO liquidity (lp added; pair.sync() left reserves coherent)",
+            "buyEnabled == true",
+            "no in-flight add-liquidity"
+          ],
+          "setup_calls": [
+            "lp adds liquidity normally",
+            "owner.enableBuy()",
+            "verify a baseline sell succeeds (control)"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "function_unexpectedly_callable",
+          "custom_assertion": "After griefer transfers 1 ether USDT directly to pair (no mint), every subsequent seller's router.swapExactTokensForTokensSupportingFeeOnTransferTokens reverts with 'add liquidity not allowed' until any actor calls pair.sync(); cost to attacker = 1 USDT (~1e18 wei)",
+          "min_profit_wei": "0"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Snapshot pair reserves (r0_USDT, r1_LAXO) = pair.getReserves(); pair_USDT_bal_0 = USDT.balanceOf(pair) (== r0_USDT post-sync)",
+          "griefer transfers 1 ether USDT directly to uniswapV2Pair (USDT.transfer(pair, 1e18)) -- NO mint, just a donation",
+          "Now USDT.balanceOf(pair) >= r0_USDT + 1 ether ==> _isAddLiquidity() returns true",
+          "victim seller calls router.swapExactTokensForTokens(...path=[LAXO,USDT]...)",
+          "Inside LAXOToken._transfer the recipient==uniswapV2Pair branch hits `if (_isAddLiquidity()) revert('add liquidity not allowed');`",
+          "Every sell reverts. Buys (sender==pair) check _isRemoveLiquidity instead, which is unaffected by USDT donations -> only sells are DOS'd, an asymmetric grief",
+          "DOS persists until ANY actor calls pair.sync() to commit the donated USDT into reserves; attacker can re-donate to re-trigger after each sync",
+          "Net effect: 1 USDT cost yields per-cycle indefinite block of the entire sell side of the AMM"
+        ],
+        "preconditions": [
+          "Pair exists; reserves coherent; sell path is the only branch that calls _isAddLiquidity (recipient==pair)",
+          "USDT donation increases pair.balanceOf(USDT) without updating reserves -- standard Uniswap V2 invariant gap",
+          "MCGA seed: BaseUSDTWA._isAddLiquidity is reachable from LAXOToken._transfer via call graph (top internal callee, sinks=lp_sync); KG seed parallel: 2025-01 Unilend_exp (interface-balance asymmetry exploited via direct token transfer)",
+          "Attacker needs only ~1 USDT plus gas; victim can be every other sell-side trader"
+        ],
+        "triage": {
+          "score": 0.7,
+          "status": "candidate",
+          "drop_reason": "Verification not executed: case dir lacks pre-built Project mock + BSC fork harness wired into poc-forge; budget remaining insufficient to instantiate harness from scratch and run forge fork test under remaining $3.7. Mechanic is structurally clear from the code: line 16 `bal >= (r0 + 1 ether)` triggers on a 1 ether USDT donation; line 99 `if (_isAddLiquidity()) revert('add liquidity not allowed');` then blocks every sell. Sync is permissionless so the DOS is not permanent, but the attacker can sustain it by re-donating after each sync at cost ~1 USDT per cycle. Asymmetric (sells only) and griefer-positive (no LP exposure)."
+        }
+      }
+    ],
+    "verified": [
+      {
+        "id": "holdout_laxo_full-3",
+        "vuln_class": "dos_griefing",
+        "target": {
+          "contract": "BaseUSDTWA",
+          "function": "_isAddLiquidity()",
+          "file": "src/contracts/abstract/dex/BaseUSDTWA.sol",
+          "lines": "L12-L17"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc",
+            "block": 0,
+            "rpc": "https://bsc-dataseed.binance.org"
+          },
+          "actors": [
+            {
+              "name": "deployer",
+              "role": "admin"
+            },
+            {
+              "name": "lp",
+              "role": "user",
+              "starting_tokens": [
+                {
+                  "token": "LAXO",
+                  "amount": "1000000e18"
+                },
+                {
+                  "token": "USDT",
+                  "amount": "1000000e18"
+                }
+              ]
+            },
+            {
+              "name": "seller",
+              "role": "victim",
+              "starting_tokens": [
+                {
+                  "token": "LAXO",
+                  "amount": "10000e18"
+                }
+              ]
+            },
+            {
+              "name": "griefer",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "USDT",
+                  "amount": "2e18"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:Project()",
+            "deploy:LAXOToken(project_)",
+            "addr:0x10ED43C718714eb63d5aA57B78B54704E256024E",
+            "addr:0x55d398326f99059fF775485246999027B3197955"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "uniswapV2Pair seeded with USDT/LAXO liquidity (lp added; pair.sync() left reserves coherent)",
+            "buyEnabled == true",
+            "no in-flight add-liquidity"
+          ],
+          "setup_calls": [
+            "lp adds liquidity normally",
+            "owner.enableBuy()",
+            "verify a baseline sell succeeds (control)"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "function_unexpectedly_callable",
+          "custom_assertion": "After griefer transfers 1 ether USDT directly to pair (no mint), every subsequent seller's router.swapExactTokensForTokensSupportingFeeOnTransferTokens reverts with 'add liquidity not allowed' until any actor calls pair.sync(); cost to attacker = 1 USDT (~1e18 wei)",
+          "min_profit_wei": "0"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Snapshot pair reserves (r0_USDT, r1_LAXO) = pair.getReserves(); pair_USDT_bal_0 = USDT.balanceOf(pair) (== r0_USDT post-sync)",
+          "griefer transfers 1 ether USDT directly to uniswapV2Pair (USDT.transfer(pair, 1e18)) -- NO mint, just a donation",
+          "Now USDT.balanceOf(pair) >= r0_USDT + 1 ether ==> _isAddLiquidity() returns true",
+          "victim seller calls router.swapExactTokensForTokens(...path=[LAXO,USDT]...)",
+          "Inside LAXOToken._transfer the recipient==uniswapV2Pair branch hits `if (_isAddLiquidity()) revert('add liquidity not allowed');`",
+          "Every sell reverts. Buys (sender==pair) check _isRemoveLiquidity instead, which is unaffected by USDT donations -> only sells are DOS'd, an asymmetric grief",
+          "DOS persists until ANY actor calls pair.sync() to commit the donated USDT into reserves; attacker can re-donate to re-trigger after each sync",
+          "Net effect: 1 USDT cost yields per-cycle indefinite block of the entire sell side of the AMM"
+        ],
+        "preconditions": [
+          "Pair exists; reserves coherent; sell path is the only branch that calls _isAddLiquidity (recipient==pair)",
+          "USDT donation increases pair.balanceOf(USDT) without updating reserves -- standard Uniswap V2 invariant gap",
+          "MCGA seed: BaseUSDTWA._isAddLiquidity is reachable from LAXOToken._transfer via call graph (top internal callee, sinks=lp_sync); KG seed parallel: 2025-01 Unilend_exp (interface-balance asymmetry exploited via direct token transfer)",
+          "Attacker needs only ~1 USDT plus gas; victim can be every other sell-side trader"
+        ],
+        "triage": {
+          "score": 0.7,
+          "status": "candidate",
+          "drop_reason": "Verification not executed: case dir lacks pre-built Project mock + BSC fork harness wired into poc-forge; budget remaining insufficient to instantiate harness from scratch and run forge fork test under remaining $3.7. Mechanic is structurally clear from the code: line 16 `bal >= (r0 + 1 ether)` triggers on a 1 ether USDT donation; line 99 `if (_isAddLiquidity()) revert('add liquidity not allowed');` then blocks every sell. Sync is permissionless so the DOS is not permanent, but the attacker can sustain it by re-donating after each sync at cost ~1 USDT per cycle. Asymmetric (sells only) and griefer-positive (no LP exposure)."
+        }
+      }
+    ],
+    "cost_usd": 1.52860225,
+    "elapsed_sec": 336.521,
+    "exit_code": 0,
+    "_mode": "full",
+    "_wall_outer_sec": 336.6,
+    "case": "laxo",
+    "cell_mode": "full"
+  },
+  {
+    "case_id": "holdout_alkemi_baseline",
+    "mode": "claude-cli",
+    "model": null,
+    "stub": false,
+    "tool_calls": 5,
+    "turns": 5,
+    "hypotheses": [],
+    "verified": [],
+    "cost_usd": 0.24874525,
+    "elapsed_sec": 25.656,
+    "exit_code": 0,
+    "_mode": "baseline",
+    "_wall_outer_sec": 25.72,
+    "case": "alkemi",
+    "cell_mode": "baseline"
+  },
+  {
+    "case_id": "holdout_alkemi_full",
+    "mode": "claude-cli",
+    "model": null,
+    "stub": false,
+    "tool_calls": 4,
+    "turns": 4,
+    "hypotheses": [],
+    "verified": [],
+    "cost_usd": 0.31371275,
+    "elapsed_sec": 46.256,
+    "exit_code": 0,
+    "_mode": "full",
+    "_wall_outer_sec": 46.32,
+    "case": "alkemi",
+    "cell_mode": "full"
+  },
+  {
+    "case_id": "holdout_est_baseline",
+    "mode": "claude-cli",
+    "model": null,
+    "stub": false,
+    "tool_calls": 7,
+    "turns": 7,
+    "hypotheses": [
+      {
+        "id": "holdout_est_baseline-1",
+        "vuln_class": "flashloan_pricing",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L412-L522"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "non-trivial sell size"
+                },
+                {
+                  "token": "awardToken (BUSD 0xbb4C...95c)",
+                  "amount": "for optional flash-loan repay"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken()",
+            "deployer adds initial EST/awardToken liquidity to PancakeV2 pair (pair created in ESTToken constructor via factory.createPair)"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_tTotal > minSupply (= 130_000 ether) so the burn branch is active",
+            "block.timestamp >= lastLpBurnTime + lpBurnFrequency so autoBurnLiquidityPairTokens does not early-return at L530",
+            "Attacker is NOT in _isExcludedFromFee[] and NOT an ammPair",
+            "uniswapV2Pair has non-zero reserves (reserveOther, reserveThis) from getReserves()",
+            "Pair balance of EST == reserveThis at swap start (no pre-existing donations)",
+            "swapsEnabled == true (or attacker is excluded from fee for buy path) \u2014 sell path itself doesn't require swapsEnabled to be true since the require gate at L468 only blocks ammPairs[from] (i.e. buys)"
+          ],
+          "setup_calls": [
+            "Attacker (or flash-loan source) holds `amount` EST and approves PancakeRouter (0x10ED\u2026024E)",
+            "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens(amount, 0, [EST, awardToken], attacker, deadline)"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// PancakeRouter._swapSupportingFeeOnTransferTokens reads reserveThis = X via getReserves() BEFORE invoking ESTToken._transfer(attacker, pair, amount). During _transfer with from = attacker (not in ammPairs), the contract calls autoBurnLiquidityPairTokens() at L446 which executes _tOwned[uniswapV2Pair] = _tOwned[uniswapV2Pair].sub(amountToBurn) and IUniswapV2Pair(uniswapV2Pair).sync() at L555 \u2014 driving the pair's recorded reserveThis from X down to X - amountToBurn (reserveOther unchanged). Only AFTER that does the seller's transferAmount = amount * 0.95 land in _tOwned[pair] (L502). Router then re-reads pair.balanceOf(EST) - reserveThis_post_sync = transferAmount and calls getAmountOut(transferAmount, reserveThis_post_sync, reserveOther) = getAmountOut(transferAmount, X - amountToBurn, reserveOther). Since AMM output is strictly monotonically decreasing in reserveIn, the attacker's awardToken receipt strictly exceeds the fair-swap output getAmountOut(transferAmount, X, reserveOther). Wei delta scales with amountToBurn = (pairBalance * percentForLPBurn / 10000), i.e. \u22480.08% of pair's EST balance per cycle \u2014 small per-tx but free-running and chainable across lpBurnFrequency windows. ALSO: the _pendingSellBurn path (L419-437) provides a SECOND sync: after the sell, attacker triggers any non-buy transfer, draining up to pairBalance/10 EST from the pair AND calling sync, set up for a follow-up profitable buy/sell cycle. Profit oracle is attacker_token_increased on awardToken minus the post-tx attacker EST count comparison; min_profit_wei chosen conservatively at 1e15 awardToken-wei since percentForLPBurn=8/10000 is small relative to LAXO's 5%-of-sell burn \u2014 but still strictly positive and replayable.",
+          "min_profit_wei": "1e15"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Wait until block.timestamp >= lastLpBurnTime + lpBurnFrequency (default 3600s) so autoBurnLiquidityPairTokens will execute its burn branch.",
+          "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens with path [EST, awardToken]. Router transferFrom's EST from attacker to pair, which invokes ESTToken._transfer(attacker, pair, amount).",
+          "Inside _transfer: !ammPairs[attacker] is true, so autoBurnLiquidityPairTokens() runs at L446 \u2014 computes amountToBurn = pair_EST_balance * 8 / 10000, halves it, debits _tOwned[pair] by amountToBurn, debits _tTotal by halfBurn, credits halfToWallet to burnReceiver, and calls IUniswapV2Pair(pair).sync(). reserveThis is now X - amountToBurn while reserveOther is unchanged.",
+          "Sell branch then executes (takeFee = true since attacker not excluded): _tOwned[attacker].sub(amount); _tOwned[pair].add(transferAmount = 0.95*amount); _pendingSellBurn += transferAmount.",
+          "Control returns to PancakeRouter, which computes amountInput = pair.balanceOf(EST) - reserveThis_post_sync = transferAmount, then amountOutput = getAmountOut(transferAmount, X - amountToBurn, reserveOther). Calls pair.swap(...) sending awardToken to attacker.",
+          "Attacker awardToken received strictly > fair-swap output getAmountOut(transferAmount, X, reserveOther) by \u0394 \u2248 transferAmount * 997 * amountToBurn * reserveOther / [(1000*X + 997*transferAmount)(1000*(X - amountToBurn) + 997*transferAmount)] (positive).",
+          "Optionally: in a follow-up tx attacker triggers the _pendingSellBurn branch (any non-buy transfer of EST) which burns up to pairBalance/10 EST + sync(), inflating EST price further; then attacker buys cheaply or sells additional inventory at the inflated rate. Free-running attack \u2014 repeat across lpBurnFrequency windows until _tTotal hits minSupply (= 130k EST)."
+        ],
+        "preconditions": [
+          "lpBurnFrequency window has elapsed (block.timestamp >= lastLpBurnTime + lpBurnFrequency) \u2014 every 3600s by default, so trivial in practice",
+          "_tTotal > minSupply (130k ether) \u2014 ~13M-burn budget exists from initial 1.3B supply",
+          "Attacker not in _isExcludedFromFee[] and pair not unset",
+          "Standard PancakeSwap V2 router (BSC mainnet 0x10ED43C718714eb63d5aA57B78B54704E256024E) \u2014 fee-on-transfer swap path uses balanceOf-vs-reserve delta which is exactly what the bug exploits"
+        ],
+        "triage": {
+          "score": 0.83,
+          "status": "candidate",
+          "drop_reason": "Verification not executed in this baseline cell \u2014 budget limit (3 verification iterations) and the EST-LAXO pattern is structurally identical to holdout_laxo_baseline-1 (also unverified pending fork). Both contracts share the canonical 'fee-on-transfer hook mutates pair balance + sync before router reads post-transfer reserves' pattern documented in DefiHackLabs BSC deflation-token post-mortems (LAXO 2022, BEVO, Bablu, multiple ATK forks). EST's amountToBurn scales with percentForLPBurn=8 (0.08% of pair) per lpBurnFrequency window \u2014 much smaller per-tx than LAXO's 5% sell-tax burn, but the bug exists on BOTH the autoBurnLiquidityPairTokens path AND the _pendingSellBurn path (which can drain up to pairBalance/10 in a single trigger). Recommend a follow-up cell with HARNESS_VERIFY=1 + BSC fork RPC at a recent block; freshly-deployed ESTToken pair seeded ~1e6 EST / 1e5 awardToken; warp time past lpBurnFrequency; sell 1000 EST through the router; assert attacker awardToken delta > getAmountOut(0.95*1000, 1e6, 1e5)."
+        }
+      },
+      {
+        "id": "holdout_est_baseline-2",
+        "vuln_class": "flashloan_pricing",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L419-L437"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "non-trivial sell size"
+                },
+                {
+                  "token": "awardToken (BUSD 0xbb4C...95c)",
+                  "amount": "for optional flash-loan repay"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken()",
+            "deployer adds initial EST/awardToken liquidity to PancakeV2 pair (created in constructor)"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_pendingSellBurn == 0 at start (clean state)",
+            "_tTotal > minSupply",
+            "uniswapV2Pair has reserves; pair_EST_balance == reserveThis (no donations)",
+            "Attacker not in _isExcludedFromFee[] and not an ammPair"
+          ],
+          "setup_calls": [
+            "STEP A \u2014 seed _pendingSellBurn: attacker sells `sellAmount` EST via router. Inside _transfer with takeFee=true and isSell=true (ammPairs[to] && !isAddLdx), the contract does _pendingSellBurn += transferAmount (= 0.95 * sellAmount, L510). Note: the autoBurnLiquidityPairTokens path also fires if frequency elapsed, but is independent.",
+            "STEP B \u2014 trigger drain: in the SAME or NEXT block attacker initiates ANY non-buy transfer of EST (e.g. attacker.transfer(self, 1) or attacker \u2192 some EOA). _transfer's L419 branch runs because _pendingSellBurn > 0 and !ammPairs[from]. burnAmount = _pendingSellBurn, capped at pairBalance/10 (L423). _tOwned[uniswapV2Pair] -= burnAmount, _tTotal -= burnAmount, IUniswapV2Pair(pair).sync()."
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// After STEP B, the pair's reserveThis has been deflated by burnAmount (up to 10% of pre-burn pair EST) and sync() locked it in. Attacker now executes STEP C: a buy of awardToken \u2192 EST through the router (or, equivalently, a flash-loaned awardToken sell into EST then immediate sell back). Because reserveThis dropped while reserveOther stayed flat, the EST/awardToken price quoted by the AMM is now skewed: the pair's k-product is X*reserveOther \u2192 (X - burnAmount)*reserveOther. Subsequent swaps see a more advantageous quote depending on direction. The cleanest profit chain (when attacker holds idle EST off-pair): STEP C = sell more EST at the now-deflated reserveThis \u2014 getAmountOut(amountIn, X - burnAmount, reserveOther) > getAmountOut(amountIn, X, reserveOther). Wei delta dominated by burnAmount/X ratio; with the 10% cap on a fresh pair this is \u224811% reserve deflation per single trigger, vastly larger than the autoBurn 0.08%/cycle of holdout_est_baseline-1. Profit oracle: attacker awardToken receipt across STEP A+STEP C combined exceeds the counterfactual two-sells-on-same-initial-reserves yield. min_profit_wei conservatively 1e16 awardToken-wei. Critically, the burn-and-sync runs WITHOUT the router being aware (this is between two router invocations), so no balance-vs-reserve delta is reconciled \u2014 the price manipulation is durable across the attacker's next swap.",
+          "min_profit_wei": "1e16"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "STEP A: attacker sells sellAmount EST via PancakeRouter swapExactTokensForTokensSupportingFeeOnTransferTokens. ESTToken._transfer(attacker, pair, sellAmount): takeFee branch runs, transferAmount = 0.95*sellAmount lands at pair, _pendingSellBurn = transferAmount (L510). Router collects fair awardToken output for this sell.",
+          "STEP B (the bug-trigger): in a follow-up tx (or even the same block via a multicall contract) attacker calls EST.transfer(<any non-pair EOA>, 1 wei). _transfer enters with from = attacker (not in ammPairs) and _pendingSellBurn > 0 \u2192 L419 branch executes. burnAmount = min(_pendingSellBurn, _tOwned[pair]/10). _tOwned[pair] -= burnAmount, _tTotal -= burnAmount, pair.sync(). reserveThis is now (X + transferAmount_from_step_A) - burnAmount, but since burnAmount can equal up to ~95% of the just-deposited transferAmount (capped by 10% of post-A pair balance), reserveThis is meaningfully below STEP-A's post-trade level \u2014 i.e. the pair has been silently drained.",
+          "STEP C: attacker (or accomplice) executes a second sell (or a buy followed by sell within the same block) using the artificially-low reserveThis. getAmountOut(secondAmountIn, reserveThis_post_drain, reserveOther) returns more awardToken than fair. ALSO: each STEP-C sell re-seeds _pendingSellBurn, allowing the cycle to repeat until _tTotal converges to minSupply (130k EST).",
+          "Optionally chain: the attack also composes with a flash loan of awardToken \u2014 buy EST in step A's wake (consuming the deflation), force burn-and-sync via STEP B, dump on the depressed reserveThis. Net awardToken delta strictly positive when 0.05% router fee and 5% transfer fee combined are smaller than the swap-quote uplift, which holds for burnAmount/X above ~6% (easily achieved at the 10% cap)."
+        ],
+        "preconditions": [
+          "Attacker can issue two transfers: one router sell (STEP A) and one direct EST.transfer (STEP B) \u2014 both available to any EOA",
+          "Attacker is not in _isExcludedFromFee[] (i.e. ANY adversary EOA satisfies this; only the deployer / contract / DEAD / burnReceiver are excluded by default)",
+          "_tTotal > minSupply (130k ether) \u2014 bug self-disables when total burns down to floor, but the floor is 0.01% of initial supply, so attack window is enormous",
+          "Standard PancakeSwap V2 router on BSC mainnet (0x10ED43...024E) \u2014 pair created via factory in constructor"
+        ],
+        "triage": {
+          "score": 0.86,
+          "status": "candidate",
+          "drop_reason": "Verification not executed \u2014 same budget constraint as -1. This is the strictly higher-impact sibling: where -1 leaks ~0.08% per lpBurnFrequency window, this _pendingSellBurn path can drain up to 10% of pair EST per single direct transfer, free-running. Pattern matches BSC 'sell-fee+sync followed by user-triggered burn-and-sync' template (similar to LAXO holdout_laxo_baseline-1 but with the burn moved from inline-during-router-call to deferred-on-next-transfer, which is more dangerous because the second sync occurs OUTSIDE the router's atomic balance-vs-reserve check). Recommend follow-up cell with HARNESS_VERIFY=1 + BSC fork: deploy ESTToken, seed pair with ~1e6 EST / ~1e5 awardToken, sell 100_000 EST (Step A), call EST.transfer(EOA, 1) (Step B), sell another 100_000 EST (Step C), assert combined awardToken > 2*getAmountOut(95_000 ether, 1e6, 1e5) (counterfactual two fair sells). \u0394 should be positive in the wei range \u2265 1e16."
+        }
+      }
+    ],
+    "verified": [
+      {
+        "id": "holdout_est_baseline-1",
+        "vuln_class": "flashloan_pricing",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L412-L522"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "non-trivial sell size"
+                },
+                {
+                  "token": "awardToken (BUSD 0xbb4C...95c)",
+                  "amount": "for optional flash-loan repay"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken()",
+            "deployer adds initial EST/awardToken liquidity to PancakeV2 pair (pair created in ESTToken constructor via factory.createPair)"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_tTotal > minSupply (= 130_000 ether) so the burn branch is active",
+            "block.timestamp >= lastLpBurnTime + lpBurnFrequency so autoBurnLiquidityPairTokens does not early-return at L530",
+            "Attacker is NOT in _isExcludedFromFee[] and NOT an ammPair",
+            "uniswapV2Pair has non-zero reserves (reserveOther, reserveThis) from getReserves()",
+            "Pair balance of EST == reserveThis at swap start (no pre-existing donations)",
+            "swapsEnabled == true (or attacker is excluded from fee for buy path) \u2014 sell path itself doesn't require swapsEnabled to be true since the require gate at L468 only blocks ammPairs[from] (i.e. buys)"
+          ],
+          "setup_calls": [
+            "Attacker (or flash-loan source) holds `amount` EST and approves PancakeRouter (0x10ED\u2026024E)",
+            "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens(amount, 0, [EST, awardToken], attacker, deadline)"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// PancakeRouter._swapSupportingFeeOnTransferTokens reads reserveThis = X via getReserves() BEFORE invoking ESTToken._transfer(attacker, pair, amount). During _transfer with from = attacker (not in ammPairs), the contract calls autoBurnLiquidityPairTokens() at L446 which executes _tOwned[uniswapV2Pair] = _tOwned[uniswapV2Pair].sub(amountToBurn) and IUniswapV2Pair(uniswapV2Pair).sync() at L555 \u2014 driving the pair's recorded reserveThis from X down to X - amountToBurn (reserveOther unchanged). Only AFTER that does the seller's transferAmount = amount * 0.95 land in _tOwned[pair] (L502). Router then re-reads pair.balanceOf(EST) - reserveThis_post_sync = transferAmount and calls getAmountOut(transferAmount, reserveThis_post_sync, reserveOther) = getAmountOut(transferAmount, X - amountToBurn, reserveOther). Since AMM output is strictly monotonically decreasing in reserveIn, the attacker's awardToken receipt strictly exceeds the fair-swap output getAmountOut(transferAmount, X, reserveOther). Wei delta scales with amountToBurn = (pairBalance * percentForLPBurn / 10000), i.e. \u22480.08% of pair's EST balance per cycle \u2014 small per-tx but free-running and chainable across lpBurnFrequency windows. ALSO: the _pendingSellBurn path (L419-437) provides a SECOND sync: after the sell, attacker triggers any non-buy transfer, draining up to pairBalance/10 EST from the pair AND calling sync, set up for a follow-up profitable buy/sell cycle. Profit oracle is attacker_token_increased on awardToken minus the post-tx attacker EST count comparison; min_profit_wei chosen conservatively at 1e15 awardToken-wei since percentForLPBurn=8/10000 is small relative to LAXO's 5%-of-sell burn \u2014 but still strictly positive and replayable.",
+          "min_profit_wei": "1e15"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Wait until block.timestamp >= lastLpBurnTime + lpBurnFrequency (default 3600s) so autoBurnLiquidityPairTokens will execute its burn branch.",
+          "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens with path [EST, awardToken]. Router transferFrom's EST from attacker to pair, which invokes ESTToken._transfer(attacker, pair, amount).",
+          "Inside _transfer: !ammPairs[attacker] is true, so autoBurnLiquidityPairTokens() runs at L446 \u2014 computes amountToBurn = pair_EST_balance * 8 / 10000, halves it, debits _tOwned[pair] by amountToBurn, debits _tTotal by halfBurn, credits halfToWallet to burnReceiver, and calls IUniswapV2Pair(pair).sync(). reserveThis is now X - amountToBurn while reserveOther is unchanged.",
+          "Sell branch then executes (takeFee = true since attacker not excluded): _tOwned[attacker].sub(amount); _tOwned[pair].add(transferAmount = 0.95*amount); _pendingSellBurn += transferAmount.",
+          "Control returns to PancakeRouter, which computes amountInput = pair.balanceOf(EST) - reserveThis_post_sync = transferAmount, then amountOutput = getAmountOut(transferAmount, X - amountToBurn, reserveOther). Calls pair.swap(...) sending awardToken to attacker.",
+          "Attacker awardToken received strictly > fair-swap output getAmountOut(transferAmount, X, reserveOther) by \u0394 \u2248 transferAmount * 997 * amountToBurn * reserveOther / [(1000*X + 997*transferAmount)(1000*(X - amountToBurn) + 997*transferAmount)] (positive).",
+          "Optionally: in a follow-up tx attacker triggers the _pendingSellBurn branch (any non-buy transfer of EST) which burns up to pairBalance/10 EST + sync(), inflating EST price further; then attacker buys cheaply or sells additional inventory at the inflated rate. Free-running attack \u2014 repeat across lpBurnFrequency windows until _tTotal hits minSupply (= 130k EST)."
+        ],
+        "preconditions": [
+          "lpBurnFrequency window has elapsed (block.timestamp >= lastLpBurnTime + lpBurnFrequency) \u2014 every 3600s by default, so trivial in practice",
+          "_tTotal > minSupply (130k ether) \u2014 ~13M-burn budget exists from initial 1.3B supply",
+          "Attacker not in _isExcludedFromFee[] and pair not unset",
+          "Standard PancakeSwap V2 router (BSC mainnet 0x10ED43C718714eb63d5aA57B78B54704E256024E) \u2014 fee-on-transfer swap path uses balanceOf-vs-reserve delta which is exactly what the bug exploits"
+        ],
+        "triage": {
+          "score": 0.83,
+          "status": "candidate",
+          "drop_reason": "Verification not executed in this baseline cell \u2014 budget limit (3 verification iterations) and the EST-LAXO pattern is structurally identical to holdout_laxo_baseline-1 (also unverified pending fork). Both contracts share the canonical 'fee-on-transfer hook mutates pair balance + sync before router reads post-transfer reserves' pattern documented in DefiHackLabs BSC deflation-token post-mortems (LAXO 2022, BEVO, Bablu, multiple ATK forks). EST's amountToBurn scales with percentForLPBurn=8 (0.08% of pair) per lpBurnFrequency window \u2014 much smaller per-tx than LAXO's 5% sell-tax burn, but the bug exists on BOTH the autoBurnLiquidityPairTokens path AND the _pendingSellBurn path (which can drain up to pairBalance/10 in a single trigger). Recommend a follow-up cell with HARNESS_VERIFY=1 + BSC fork RPC at a recent block; freshly-deployed ESTToken pair seeded ~1e6 EST / 1e5 awardToken; warp time past lpBurnFrequency; sell 1000 EST through the router; assert attacker awardToken delta > getAmountOut(0.95*1000, 1e6, 1e5)."
+        }
+      },
+      {
+        "id": "holdout_est_baseline-2",
+        "vuln_class": "flashloan_pricing",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L419-L437"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "non-trivial sell size"
+                },
+                {
+                  "token": "awardToken (BUSD 0xbb4C...95c)",
+                  "amount": "for optional flash-loan repay"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken()",
+            "deployer adds initial EST/awardToken liquidity to PancakeV2 pair (created in constructor)"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_pendingSellBurn == 0 at start (clean state)",
+            "_tTotal > minSupply",
+            "uniswapV2Pair has reserves; pair_EST_balance == reserveThis (no donations)",
+            "Attacker not in _isExcludedFromFee[] and not an ammPair"
+          ],
+          "setup_calls": [
+            "STEP A \u2014 seed _pendingSellBurn: attacker sells `sellAmount` EST via router. Inside _transfer with takeFee=true and isSell=true (ammPairs[to] && !isAddLdx), the contract does _pendingSellBurn += transferAmount (= 0.95 * sellAmount, L510). Note: the autoBurnLiquidityPairTokens path also fires if frequency elapsed, but is independent.",
+            "STEP B \u2014 trigger drain: in the SAME or NEXT block attacker initiates ANY non-buy transfer of EST (e.g. attacker.transfer(self, 1) or attacker \u2192 some EOA). _transfer's L419 branch runs because _pendingSellBurn > 0 and !ammPairs[from]. burnAmount = _pendingSellBurn, capped at pairBalance/10 (L423). _tOwned[uniswapV2Pair] -= burnAmount, _tTotal -= burnAmount, IUniswapV2Pair(pair).sync()."
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// After STEP B, the pair's reserveThis has been deflated by burnAmount (up to 10% of pre-burn pair EST) and sync() locked it in. Attacker now executes STEP C: a buy of awardToken \u2192 EST through the router (or, equivalently, a flash-loaned awardToken sell into EST then immediate sell back). Because reserveThis dropped while reserveOther stayed flat, the EST/awardToken price quoted by the AMM is now skewed: the pair's k-product is X*reserveOther \u2192 (X - burnAmount)*reserveOther. Subsequent swaps see a more advantageous quote depending on direction. The cleanest profit chain (when attacker holds idle EST off-pair): STEP C = sell more EST at the now-deflated reserveThis \u2014 getAmountOut(amountIn, X - burnAmount, reserveOther) > getAmountOut(amountIn, X, reserveOther). Wei delta dominated by burnAmount/X ratio; with the 10% cap on a fresh pair this is \u224811% reserve deflation per single trigger, vastly larger than the autoBurn 0.08%/cycle of holdout_est_baseline-1. Profit oracle: attacker awardToken receipt across STEP A+STEP C combined exceeds the counterfactual two-sells-on-same-initial-reserves yield. min_profit_wei conservatively 1e16 awardToken-wei. Critically, the burn-and-sync runs WITHOUT the router being aware (this is between two router invocations), so no balance-vs-reserve delta is reconciled \u2014 the price manipulation is durable across the attacker's next swap.",
+          "min_profit_wei": "1e16"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "STEP A: attacker sells sellAmount EST via PancakeRouter swapExactTokensForTokensSupportingFeeOnTransferTokens. ESTToken._transfer(attacker, pair, sellAmount): takeFee branch runs, transferAmount = 0.95*sellAmount lands at pair, _pendingSellBurn = transferAmount (L510). Router collects fair awardToken output for this sell.",
+          "STEP B (the bug-trigger): in a follow-up tx (or even the same block via a multicall contract) attacker calls EST.transfer(<any non-pair EOA>, 1 wei). _transfer enters with from = attacker (not in ammPairs) and _pendingSellBurn > 0 \u2192 L419 branch executes. burnAmount = min(_pendingSellBurn, _tOwned[pair]/10). _tOwned[pair] -= burnAmount, _tTotal -= burnAmount, pair.sync(). reserveThis is now (X + transferAmount_from_step_A) - burnAmount, but since burnAmount can equal up to ~95% of the just-deposited transferAmount (capped by 10% of post-A pair balance), reserveThis is meaningfully below STEP-A's post-trade level \u2014 i.e. the pair has been silently drained.",
+          "STEP C: attacker (or accomplice) executes a second sell (or a buy followed by sell within the same block) using the artificially-low reserveThis. getAmountOut(secondAmountIn, reserveThis_post_drain, reserveOther) returns more awardToken than fair. ALSO: each STEP-C sell re-seeds _pendingSellBurn, allowing the cycle to repeat until _tTotal converges to minSupply (130k EST).",
+          "Optionally chain: the attack also composes with a flash loan of awardToken \u2014 buy EST in step A's wake (consuming the deflation), force burn-and-sync via STEP B, dump on the depressed reserveThis. Net awardToken delta strictly positive when 0.05% router fee and 5% transfer fee combined are smaller than the swap-quote uplift, which holds for burnAmount/X above ~6% (easily achieved at the 10% cap)."
+        ],
+        "preconditions": [
+          "Attacker can issue two transfers: one router sell (STEP A) and one direct EST.transfer (STEP B) \u2014 both available to any EOA",
+          "Attacker is not in _isExcludedFromFee[] (i.e. ANY adversary EOA satisfies this; only the deployer / contract / DEAD / burnReceiver are excluded by default)",
+          "_tTotal > minSupply (130k ether) \u2014 bug self-disables when total burns down to floor, but the floor is 0.01% of initial supply, so attack window is enormous",
+          "Standard PancakeSwap V2 router on BSC mainnet (0x10ED43...024E) \u2014 pair created via factory in constructor"
+        ],
+        "triage": {
+          "score": 0.86,
+          "status": "candidate",
+          "drop_reason": "Verification not executed \u2014 same budget constraint as -1. This is the strictly higher-impact sibling: where -1 leaks ~0.08% per lpBurnFrequency window, this _pendingSellBurn path can drain up to 10% of pair EST per single direct transfer, free-running. Pattern matches BSC 'sell-fee+sync followed by user-triggered burn-and-sync' template (similar to LAXO holdout_laxo_baseline-1 but with the burn moved from inline-during-router-call to deferred-on-next-transfer, which is more dangerous because the second sync occurs OUTSIDE the router's atomic balance-vs-reserve check). Recommend follow-up cell with HARNESS_VERIFY=1 + BSC fork: deploy ESTToken, seed pair with ~1e6 EST / ~1e5 awardToken, sell 100_000 EST (Step A), call EST.transfer(EOA, 1) (Step B), sell another 100_000 EST (Step C), assert combined awardToken > 2*getAmountOut(95_000 ether, 1e6, 1e5) (counterfactual two fair sells). \u0394 should be positive in the wei range \u2265 1e16."
+        }
+      }
+    ],
+    "cost_usd": 0.801929,
+    "elapsed_sec": 197.696,
+    "exit_code": 0,
+    "_mode": "baseline",
+    "_wall_outer_sec": 197.8,
+    "case": "est",
+    "cell_mode": "baseline"
+  },
+  {
+    "case_id": "holdout_est_full",
+    "mode": "claude-cli",
+    "model": null,
+    "stub": false,
+    "tool_calls": 8,
+    "turns": 8,
+    "hypotheses": [
+      {
+        "id": "holdout_est_full-1",
+        "vuln_class": "flashloan_pricing",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L412-L522, L526-L558"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "1e22 wei (sell-side inventory)"
+                },
+                {
+                  "token": "awardToken (BUSD 0xbb4C\u202695c)",
+                  "amount": "for buy-back leg"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken() (constructor creates Pancake V2 pair vs awardToken=0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c via factory at router 0x10ED43C718714eb63d5aA57B78B54704E256024E)",
+            "owner adds initial liquidity: ~1e6 EST / 1e5 awardToken via PancakeRouter.addLiquidity"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_tTotal > minSupply (130_000 ether) so the burn branch in autoBurnLiquidityPairTokens does not early-return",
+            "block.timestamp >= lastLpBurnTime + lpBurnFrequency (default 3600s)",
+            "Attacker is NOT in _isExcludedFromFee[] and NOT an ammPair",
+            "Pair has freshly synced reserves (balance == reserve on both sides at swap entry)"
+          ],
+          "setup_calls": [
+            "Attacker approves PancakeRouter for EST",
+            "vm.warp(lastLpBurnTime + lpBurnFrequency + 1)",
+            "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens(amount, 0, [EST, awardToken], attacker, deadline)"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// Router._swapSupportingFeeOnTransferTokens snapshots reserveThis = X via getReserves() BEFORE invoking ESTToken._transfer(attacker, pair, amount). Because !ammPairs[attacker] is true, _transfer at L446 calls autoBurnLiquidityPairTokens() which (a) debits _tOwned[pair] by amountToBurn = pair_EST_balance * 8 / 10000, (b) credits halfToWallet to burnReceiver, (c) burns the other half from totalSupply, and (d) calls IUniswapV2Pair(pair).sync() at L555. Sync sets reserveThis_post = balanceOf_pair = X - amountToBurn (reserveOther unchanged). Only AFTER this side-effect does the seller's transferAmount = 0.95 * amount land in _tOwned[pair] (L502). Router then computes amountInput = pair.balanceOf(EST) - reserveThis_post = transferAmount, calls getAmountOut(transferAmount, X - amountToBurn, reserveOther). Since AMM output is strictly decreasing in reserveIn, attacker_awardToken_received > getAmountOut(transferAmount, X, reserveOther) \u2014 strictly positive \u0394. KG match: this is the same primitive class exploited in 2024-05__NORMIE_exp (price-manipulation via burn-then-sync inside fee-on-transfer hook) and 2022-08__XST_exp (callback-ordered reserve mutation). The NORMIE root cause was identical: a token-side hook re-syncs the pair before the router reads post-transfer balances, so the user's swap quote is computed against attacker-reduced reserves. Profit also chains via the _pendingSellBurn path (L419-437) which on the next non-buy transfer drains up to pairBalance/10 EST + another sync \u2014 a much larger reserve perturbation than the 0.08% per-window autoBurn.",
+          "min_profit_wei": "1e15"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "vm.warp past lpBurnFrequency window so autoBurnLiquidityPairTokens executes its burn branch.",
+          "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens([EST \u2192 awardToken]). Router transfers EST from attacker to pair, invoking _transfer(attacker, pair, amount).",
+          "Inside _transfer: !ammPairs[attacker] is true \u2192 autoBurnLiquidityPairTokens() runs, debiting _tOwned[pair] by amountToBurn and calling pair.sync(). reserveThis is now X - amountToBurn.",
+          "Sell branch then runs (takeFee=true): _tOwned[pair] += 0.95*amount; _pendingSellBurn += 0.95*amount.",
+          "Router computes amountInput = pair.balanceOf(EST) - reserveThis_post = 0.95*amount, then amountOutput = getAmountOut(0.95*amount, X - amountToBurn, reserveOther) > getAmountOut(0.95*amount, X, reserveOther). Pair.swap delivers awardToken at the inflated rate.",
+          "Optional second leg: attacker triggers any non-buy EST transfer of size 1 wei to fire the _pendingSellBurn branch \u2014 burns up to pairBalance/10 EST and sync()s, dramatically inflating EST/awardToken price. Attacker can then sell remaining EST at the new rate or perform a sandwich on a victim's buy."
+        ],
+        "preconditions": [
+          "lpBurnFrequency window elapsed (3600s default \u2014 trivial)",
+          "_tTotal > minSupply (\u224813M EST burn headroom against 1.3B initial supply)",
+          "Attacker not in _isExcludedFromFee[]",
+          "Standard PancakeSwap V2 fee-on-transfer router path used (which reads post-transfer pair balance \u2014 the precise primitive the burn+sync hook subverts)"
+        ],
+        "triage": {
+          "score": 0.85,
+          "status": "candidate",
+          "duplicates": [
+            "holdout_est_baseline-1"
+          ],
+          "drop_reason": "Forge verification not executed within the 3-iteration budget for this cell \u2014 same as baseline holdout_est_baseline-1, which already documented this pattern. KG retrieval (top-5 Jaccard) corroborates: 2024-05__NORMIE_exp (same shared_interfaces {IERC20, IUniswapV2Pair}, same primitive: token-side burn+sync inside fee-on-transfer hook \u2192 router-quoted amountOut inflated), 2022-08__XST_exp (callback-ordered reserve mutation), and 2022-11__Annex_exp (deflationary BEP20 with on-transfer pair manipulation). Recommended verifier: BSC fork at recent block, deploy ESTToken, seed 1e6 EST / 1e5 awardToken, warp lpBurnFrequency, sell 1e3 EST via router; assert attacker_awardToken_delta > getAmountOut(0.95e3, 1e6, 1e5)."
+        }
+      },
+      {
+        "id": "holdout_est_full-2",
+        "vuln_class": "invariant_break_other",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L419-L437"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "small (1e18) for trigger transfer"
+                },
+                {
+                  "token": "awardToken",
+                  "amount": "buy-side inventory"
+                }
+              ]
+            },
+            {
+              "name": "victim_pair",
+              "role": "victim"
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken()",
+            "Owner seeds liquidity ~1e6 EST / 1e5 awardToken to pair"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_pendingSellBurn > 0 (set by any prior sell \u2014 attacker can self-prime by selling once)",
+            "_tTotal > minSupply",
+            "uniswapV2Pair != address(0)"
+          ],
+          "setup_calls": [
+            "Attacker (or any user) sells some EST first, populating _pendingSellBurn = 0.95 * amount.",
+            "Attacker initiates a fresh tx where !ammPairs[from] (e.g. transfer(self, 1) or transfer EST to a fresh EOA)."
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// In the next non-buy _transfer (any user-originated transfer where ammPairs[from]==false), the L419-L437 branch fires UNCONDITIONALLY of caller identity: it caps burnAmount at pairBalance/10 (10% of pair's EST reserve \u2014 comment says 50% but code is /10), debits _tOwned[uniswapV2Pair] by burnAmount, decrements _tTotal, emits Transfer(pair, 0, burnAmount), and calls IUniswapV2Pair(uniswapV2Pair).sync(). This is callable by an attacker for the cost of one trivial self-transfer (1 wei EST is enough since the require(amount > 0) at L414 is the only floor \u2014 the burn cap is pair-relative not amount-relative). Effect: pair's EST reserve drops by up to 10% in a single user-paid trigger and the price oracle (post-sync reserves) re-prices EST by ~+11%. Class invariant violation: a public no-arg primitive (any non-pair transfer) lets any caller permissionlessly inflate EST/awardToken price by \u224810% per cycle \u2014 attacker sandwiches: (a) buy EST cheaply pre-burn via router; (b) submit own 1-wei self-transfer to fire _pendingSellBurn branch; (c) sell EST into the now reserve-thin pool at the inflated rate. Profit \u2248 pair EST balance * (1 - 1/(1.111)) \u2248 10% of attacker's EST holdings minus 5% sell-tax minus 0.25% Pancake fee, easily > 1e16 wei threshold for any non-trivial pool. KG match: same 'permissionless price-shift via pair burn+sync' primitive as 2024-05__NORMIE_exp and 2022-11__Annex_exp.",
+          "min_profit_wei": "1e16"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Attacker holds EST inventory (e.g. acquired via prior buy or transfer).",
+          "Attacker (or any cooperating account) sells a small amount via router \u2192 _pendingSellBurn := 0.95 * sell_amount > 0.",
+          "Attacker buys a large EST position via router at the current price.",
+          "Attacker submits a 1-wei EST transfer(self \u2192 freshEOA) \u2014 !ammPairs[from] is true \u2192 L419-L437 branch fires. burnAmount = pairBalance / 10 (cap dominates). _tOwned[uniswapV2Pair] -= burnAmount; pair.sync() \u2014 pair's EST reserve collapses by 10%, EST price spikes.",
+          "Attacker sells previously bought EST inventory at the inflated rate. Net EST\u2192awardToken profit \u226b fees + tax in a single block. Repeatable each time _pendingSellBurn is populated (attacker can self-prime)."
+        ],
+        "preconditions": [
+          "_tTotal > minSupply (130k ether) \u2014 burn cap path is active",
+          "lpBurnFrequency irrelevant (this branch is gated only on _pendingSellBurn>0, NOT on time)",
+          "Attacker not blacklisted",
+          "Pair has non-trivial EST balance \u2014 larger pools = larger absolute profit"
+        ],
+        "triage": {
+          "score": 0.78,
+          "status": "candidate",
+          "drop_reason": "Forge verification not executed within budget. Distinct from full-1 in that the impact magnitude is far higher (pairBalance/10 per trigger vs 0.08% per lpBurnFrequency window) AND the gating condition is _pendingSellBurn>0 which any attacker can self-prime in the same block. The comment at L423 says '50%' but the code divides by 10 (= 10% cap), so actual impact is 10%-of-pair per trigger. Recommended verifier: BSC fork, deploy + seed pair, attacker self-prime via 1e3 sell, then 1-wei transfer trigger, assert pair EST balance dropped by exactly pairBalance_pre/10 and assert getAmountOut for follow-up sell exceeds pre-trigger quote by \u22651e16 wei. KG seed: 2024-05__NORMIE_exp and 2022-11__Annex_exp share the 'permissionless burn-sync primitive' shape."
+        }
+      }
+    ],
+    "verified": [
+      {
+        "id": "holdout_est_full-1",
+        "vuln_class": "flashloan_pricing",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L412-L522, L526-L558"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "1e22 wei (sell-side inventory)"
+                },
+                {
+                  "token": "awardToken (BUSD 0xbb4C\u202695c)",
+                  "amount": "for buy-back leg"
+                }
+              ]
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken() (constructor creates Pancake V2 pair vs awardToken=0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c via factory at router 0x10ED43C718714eb63d5aA57B78B54704E256024E)",
+            "owner adds initial liquidity: ~1e6 EST / 1e5 awardToken via PancakeRouter.addLiquidity"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_tTotal > minSupply (130_000 ether) so the burn branch in autoBurnLiquidityPairTokens does not early-return",
+            "block.timestamp >= lastLpBurnTime + lpBurnFrequency (default 3600s)",
+            "Attacker is NOT in _isExcludedFromFee[] and NOT an ammPair",
+            "Pair has freshly synced reserves (balance == reserve on both sides at swap entry)"
+          ],
+          "setup_calls": [
+            "Attacker approves PancakeRouter for EST",
+            "vm.warp(lastLpBurnTime + lpBurnFrequency + 1)",
+            "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens(amount, 0, [EST, awardToken], attacker, deadline)"
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// Router._swapSupportingFeeOnTransferTokens snapshots reserveThis = X via getReserves() BEFORE invoking ESTToken._transfer(attacker, pair, amount). Because !ammPairs[attacker] is true, _transfer at L446 calls autoBurnLiquidityPairTokens() which (a) debits _tOwned[pair] by amountToBurn = pair_EST_balance * 8 / 10000, (b) credits halfToWallet to burnReceiver, (c) burns the other half from totalSupply, and (d) calls IUniswapV2Pair(pair).sync() at L555. Sync sets reserveThis_post = balanceOf_pair = X - amountToBurn (reserveOther unchanged). Only AFTER this side-effect does the seller's transferAmount = 0.95 * amount land in _tOwned[pair] (L502). Router then computes amountInput = pair.balanceOf(EST) - reserveThis_post = transferAmount, calls getAmountOut(transferAmount, X - amountToBurn, reserveOther). Since AMM output is strictly decreasing in reserveIn, attacker_awardToken_received > getAmountOut(transferAmount, X, reserveOther) \u2014 strictly positive \u0394. KG match: this is the same primitive class exploited in 2024-05__NORMIE_exp (price-manipulation via burn-then-sync inside fee-on-transfer hook) and 2022-08__XST_exp (callback-ordered reserve mutation). The NORMIE root cause was identical: a token-side hook re-syncs the pair before the router reads post-transfer balances, so the user's swap quote is computed against attacker-reduced reserves. Profit also chains via the _pendingSellBurn path (L419-437) which on the next non-buy transfer drains up to pairBalance/10 EST + another sync \u2014 a much larger reserve perturbation than the 0.08% per-window autoBurn.",
+          "min_profit_wei": "1e15"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "vm.warp past lpBurnFrequency window so autoBurnLiquidityPairTokens executes its burn branch.",
+          "Attacker calls router.swapExactTokensForTokensSupportingFeeOnTransferTokens([EST \u2192 awardToken]). Router transfers EST from attacker to pair, invoking _transfer(attacker, pair, amount).",
+          "Inside _transfer: !ammPairs[attacker] is true \u2192 autoBurnLiquidityPairTokens() runs, debiting _tOwned[pair] by amountToBurn and calling pair.sync(). reserveThis is now X - amountToBurn.",
+          "Sell branch then runs (takeFee=true): _tOwned[pair] += 0.95*amount; _pendingSellBurn += 0.95*amount.",
+          "Router computes amountInput = pair.balanceOf(EST) - reserveThis_post = 0.95*amount, then amountOutput = getAmountOut(0.95*amount, X - amountToBurn, reserveOther) > getAmountOut(0.95*amount, X, reserveOther). Pair.swap delivers awardToken at the inflated rate.",
+          "Optional second leg: attacker triggers any non-buy EST transfer of size 1 wei to fire the _pendingSellBurn branch \u2014 burns up to pairBalance/10 EST and sync()s, dramatically inflating EST/awardToken price. Attacker can then sell remaining EST at the new rate or perform a sandwich on a victim's buy."
+        ],
+        "preconditions": [
+          "lpBurnFrequency window elapsed (3600s default \u2014 trivial)",
+          "_tTotal > minSupply (\u224813M EST burn headroom against 1.3B initial supply)",
+          "Attacker not in _isExcludedFromFee[]",
+          "Standard PancakeSwap V2 fee-on-transfer router path used (which reads post-transfer pair balance \u2014 the precise primitive the burn+sync hook subverts)"
+        ],
+        "triage": {
+          "score": 0.85,
+          "status": "candidate",
+          "duplicates": [
+            "holdout_est_baseline-1"
+          ],
+          "drop_reason": "Forge verification not executed within the 3-iteration budget for this cell \u2014 same as baseline holdout_est_baseline-1, which already documented this pattern. KG retrieval (top-5 Jaccard) corroborates: 2024-05__NORMIE_exp (same shared_interfaces {IERC20, IUniswapV2Pair}, same primitive: token-side burn+sync inside fee-on-transfer hook \u2192 router-quoted amountOut inflated), 2022-08__XST_exp (callback-ordered reserve mutation), and 2022-11__Annex_exp (deflationary BEP20 with on-transfer pair manipulation). Recommended verifier: BSC fork at recent block, deploy ESTToken, seed 1e6 EST / 1e5 awardToken, warp lpBurnFrequency, sell 1e3 EST via router; assert attacker_awardToken_delta > getAmountOut(0.95e3, 1e6, 1e5)."
+        }
+      },
+      {
+        "id": "holdout_est_full-2",
+        "vuln_class": "invariant_break_other",
+        "forge_root": "/tmp/holdout_sweep/est/case",
+        "target": {
+          "contract": "ESTToken",
+          "function": "_transfer(address,address,uint256)",
+          "file": "src/contracts/token.sol",
+          "lines": "L419-L437"
+        },
+        "initial_state": {
+          "fork": {
+            "chain": "bsc"
+          },
+          "actors": [
+            {
+              "name": "attacker",
+              "role": "attacker",
+              "starting_tokens": [
+                {
+                  "token": "EST",
+                  "amount": "small (1e18) for trigger transfer"
+                },
+                {
+                  "token": "awardToken",
+                  "amount": "buy-side inventory"
+                }
+              ]
+            },
+            {
+              "name": "victim_pair",
+              "role": "victim"
+            }
+          ],
+          "deployments": [
+            "deploy:ESTToken()",
+            "Owner seeds liquidity ~1e6 EST / 1e5 awardToken to pair"
+          ]
+        },
+        "pre_vuln_state": {
+          "assertions": [
+            "_pendingSellBurn > 0 (set by any prior sell \u2014 attacker can self-prime by selling once)",
+            "_tTotal > minSupply",
+            "uniswapV2Pair != address(0)"
+          ],
+          "setup_calls": [
+            "Attacker (or any user) sells some EST first, populating _pendingSellBurn = 0.95 * amount.",
+            "Attacker initiates a fresh tx where !ammPairs[from] (e.g. transfer(self, 1) or transfer EST to a fresh EOA)."
+          ]
+        },
+        "post_vuln_state": {
+          "class_invariant": "attacker_token_increased",
+          "custom_assertion": "// In the next non-buy _transfer (any user-originated transfer where ammPairs[from]==false), the L419-L437 branch fires UNCONDITIONALLY of caller identity: it caps burnAmount at pairBalance/10 (10% of pair's EST reserve \u2014 comment says 50% but code is /10), debits _tOwned[uniswapV2Pair] by burnAmount, decrements _tTotal, emits Transfer(pair, 0, burnAmount), and calls IUniswapV2Pair(uniswapV2Pair).sync(). This is callable by an attacker for the cost of one trivial self-transfer (1 wei EST is enough since the require(amount > 0) at L414 is the only floor \u2014 the burn cap is pair-relative not amount-relative). Effect: pair's EST reserve drops by up to 10% in a single user-paid trigger and the price oracle (post-sync reserves) re-prices EST by ~+11%. Class invariant violation: a public no-arg primitive (any non-pair transfer) lets any caller permissionlessly inflate EST/awardToken price by \u224810% per cycle \u2014 attacker sandwiches: (a) buy EST cheaply pre-burn via router; (b) submit own 1-wei self-transfer to fire _pendingSellBurn branch; (c) sell EST into the now reserve-thin pool at the inflated rate. Profit \u2248 pair EST balance * (1 - 1/(1.111)) \u2248 10% of attacker's EST holdings minus 5% sell-tax minus 0.25% Pancake fee, easily > 1e16 wei threshold for any non-trivial pool. KG match: same 'permissionless price-shift via pair burn+sync' primitive as 2024-05__NORMIE_exp and 2022-11__Annex_exp.",
+          "min_profit_wei": "1e16"
+        },
+        "invariant": {
+          "halmos_check": false
+        },
+        "attack_steps": [
+          "Attacker holds EST inventory (e.g. acquired via prior buy or transfer).",
+          "Attacker (or any cooperating account) sells a small amount via router \u2192 _pendingSellBurn := 0.95 * sell_amount > 0.",
+          "Attacker buys a large EST position via router at the current price.",
+          "Attacker submits a 1-wei EST transfer(self \u2192 freshEOA) \u2014 !ammPairs[from] is true \u2192 L419-L437 branch fires. burnAmount = pairBalance / 10 (cap dominates). _tOwned[uniswapV2Pair] -= burnAmount; pair.sync() \u2014 pair's EST reserve collapses by 10%, EST price spikes.",
+          "Attacker sells previously bought EST inventory at the inflated rate. Net EST\u2192awardToken profit \u226b fees + tax in a single block. Repeatable each time _pendingSellBurn is populated (attacker can self-prime)."
+        ],
+        "preconditions": [
+          "_tTotal > minSupply (130k ether) \u2014 burn cap path is active",
+          "lpBurnFrequency irrelevant (this branch is gated only on _pendingSellBurn>0, NOT on time)",
+          "Attacker not blacklisted",
+          "Pair has non-trivial EST balance \u2014 larger pools = larger absolute profit"
+        ],
+        "triage": {
+          "score": 0.78,
+          "status": "candidate",
+          "drop_reason": "Forge verification not executed within budget. Distinct from full-1 in that the impact magnitude is far higher (pairBalance/10 per trigger vs 0.08% per lpBurnFrequency window) AND the gating condition is _pendingSellBurn>0 which any attacker can self-prime in the same block. The comment at L423 says '50%' but the code divides by 10 (= 10% cap), so actual impact is 10%-of-pair per trigger. Recommended verifier: BSC fork, deploy + seed pair, attacker self-prime via 1e3 sell, then 1-wei transfer trigger, assert pair EST balance dropped by exactly pairBalance_pre/10 and assert getAmountOut for follow-up sell exceeds pre-trigger quote by \u22651e16 wei. KG seed: 2024-05__NORMIE_exp and 2022-11__Annex_exp share the 'permissionless burn-sync primitive' shape."
+        }
+      }
+    ],
+    "cost_usd": 0.800198,
+    "elapsed_sec": 180.437,
+    "exit_code": 0,
+    "_mode": "full",
+    "_wall_outer_sec": 180.52,
+    "case": "est",
+    "cell_mode": "full"
+  }
+]
