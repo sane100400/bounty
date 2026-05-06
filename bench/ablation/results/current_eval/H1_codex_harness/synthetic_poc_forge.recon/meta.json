@@ -1,0 +1,43 @@
+{
+  "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+  "project_type": "foundry",
+  "out_dir": "bench/ablation/results/current_eval/H1_codex_harness/synthetic_poc_forge.recon",
+  "base_ref": null,
+  "elapsed_sec": 1.66,
+  "tools": {
+    "forge": "forge Version: 1.5.1-stable",
+    "slither": "0.11.5"
+  },
+  "steps": [
+    {
+      "name": "inscope",
+      "ok": true,
+      "detail": "5 .sol files"
+    },
+    {
+      "name": "storage",
+      "ok": true,
+      "detail": "4 contracts with storage layout"
+    },
+    {
+      "name": "entry_points",
+      "ok": true,
+      "detail": "4 contracts indexed"
+    },
+    {
+      "name": "mcga_sinks",
+      "ok": true,
+      "detail": "5 files, 9 ext sinks, 8 int sinks"
+    },
+    {
+      "name": "attack_surface",
+      "ok": true,
+      "detail": "5 files, 21 functions ranked"
+    },
+    {
+      "name": "diff",
+      "ok": true,
+      "detail": "no --base-ref provided; skipped"
+    }
+  ]
+}

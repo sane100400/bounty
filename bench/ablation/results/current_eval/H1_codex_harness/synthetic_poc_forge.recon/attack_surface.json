@@ -1,0 +1,664 @@
+{
+  "project": "/home/sane100400/projects/bounty/poc-forge",
+  "ranking_version": "cpua_v1",
+  "notes": [
+    "Scores prioritize direct external/public entry points with high-value sinks.",
+    "Use ranked_files for coverage order; use ranked_functions for trace targets.",
+    "This is a prioritizer, not a detector. Still read every in-scope file."
+  ],
+  "ranked_files": [
+    {
+      "file": "src/SyntheticVault.sol",
+      "loc": 91,
+      "sinks_total": 12,
+      "external_or_public_functions": 7,
+      "score": 127,
+      "hot_functions": [
+        {
+          "file": "src/SyntheticVault.sol",
+          "contract": "SyntheticVault",
+          "function": "deposit",
+          "line": 29,
+          "visibility": "external",
+          "sink_count": 3,
+          "sinks": {
+            "external_call": 1,
+            "share_write": 2
+          },
+          "score": 34,
+          "reasons": [
+            "direct_entry",
+            "external_call",
+            "share_write"
+          ]
+        },
+        {
+          "file": "src/SyntheticVault.sol",
+          "contract": "SyntheticVault",
+          "function": "redeem",
+          "line": 47,
+          "visibility": "external",
+          "sink_count": 2,
+          "sinks": {
+            "external_call": 1,
+            "share_write": 1
+          },
+          "score": 26,
+          "reasons": [
+            "direct_entry",
+            "external_call",
+            "share_write"
+          ]
+        },
+        {
+          "file": "src/SyntheticVault.sol",
+          "contract": "MockToken",
+          "function": "mint",
+          "line": 67,
+          "visibility": "external",
+          "sink_count": 2,
+          "sinks": {
+            "balance_write": 1,
+            "supply_write": 1
+          },
+          "score": 22,
+          "reasons": [
+            "direct_entry",
+            "balance_write",
+            "supply_write"
+          ]
+        },
+        {
+          "file": "src/SyntheticVault.sol",
+          "contract": "MockToken",
+          "function": "transfer",
+          "line": 72,
+          "visibility": "external",
+          "sink_count": 2,
+          "sinks": {
+            "balance_write": 2
+          },
+          "score": 22,
+          "reasons": [
+            "direct_entry",
+            "balance_write"
+          ]
+        },
+        {
+          "file": "src/SyntheticVault.sol",
+          "contract": "MockToken",
+          "function": "transferFrom",
+          "line": 83,
+          "visibility": "external",
+          "sink_count": 2,
+          "sinks": {
+            "balance_write": 2
+          },
+          "score": 22,
+          "reasons": [
+            "direct_entry",
+            "balance_write"
+          ]
+        },
+        {
+          "file": "src/SyntheticVault.sol",
+          "contract": "SyntheticVault",
+          "function": "totalAssets",
+          "line": 21,
+          "visibility": "public",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 15,
+          "reasons": [
+            "direct_entry",
+            "external_call"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/MultiBugVault.sol",
+      "loc": 105,
+      "sinks_total": 9,
+      "external_or_public_functions": 4,
+      "score": 104,
+      "hot_functions": [
+        {
+          "file": "src/MultiBugVault.sol",
+          "contract": "MultiBugVault",
+          "function": "deposit",
+          "line": 59,
+          "visibility": "external",
+          "sink_count": 4,
+          "sinks": {
+            "share_write": 3,
+            "transfer_token": 1
+          },
+          "score": 38,
+          "reasons": [
+            "direct_entry",
+            "share_write",
+            "transfer_token"
+          ]
+        },
+        {
+          "file": "src/MultiBugVault.sol",
+          "contract": "MultiBugVault",
+          "function": "claimYield",
+          "line": 84,
+          "visibility": "external",
+          "sink_count": 4,
+          "sinks": {
+            "transfer_token": 1,
+            "block_dep": 3
+          },
+          "score": 23,
+          "reasons": [
+            "direct_entry",
+            "transfer_token",
+            "block_dep"
+          ]
+        },
+        {
+          "file": "src/MultiBugVault.sol",
+          "contract": "MultiBugVault",
+          "function": "withdraw",
+          "line": 74,
+          "visibility": "external",
+          "sink_count": 1,
+          "sinks": {
+            "transfer_token": 1
+          },
+          "score": 14,
+          "reasons": [
+            "direct_entry",
+            "transfer_token"
+          ]
+        }
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+      "loc": 85,
+      "sinks_total": 5,
+      "external_or_public_functions": 0,
+      "score": 41,
+      "hot_functions": [
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+          "contract": "ClassInvariants",
+          "function": "assertAttackerTokenIncreased",
+          "line": 28,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 11,
+          "reasons": [
+            "external_call"
+          ]
+        },
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+          "contract": "ClassInvariants",
+          "function": "assertVictimDrained",
+          "line": 37,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 11,
+          "reasons": [
+            "external_call"
+          ]
+        },
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+          "contract": "ClassInvariants",
+          "function": "assertSupplyInflated",
+          "line": 59,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 11,
+          "reasons": [
+            "external_call"
+          ]
+        },
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+          "contract": "ClassInvariants",
+          "function": "assertPermissionAcquired",
+          "line": 67,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 11,
+          "reasons": [
+            "external_call"
+          ]
+        },
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+          "contract": "ClassInvariants",
+          "function": "assertFunctionCallable",
+          "line": 75,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 11,
+          "reasons": [
+            "external_call"
+          ]
+        }
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+      "loc": 116,
+      "sinks_total": 3,
+      "external_or_public_functions": 0,
+      "score": 29,
+      "hot_functions": [
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+          "contract": "AttackInvariants",
+          "function": "assertSupplyExceededBound",
+          "line": 67,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 11,
+          "reasons": [
+            "external_call"
+          ]
+        },
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+          "contract": "AttackInvariants",
+          "function": "assertBorrowExceededBound",
+          "line": 74,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "external_call": 1
+          },
+          "score": 11,
+          "reasons": [
+            "external_call"
+          ]
+        },
+        {
+          "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+          "contract": "AttackInvariants",
+          "function": "assertSameBlockEntry",
+          "line": 84,
+          "visibility": "internal",
+          "sink_count": 1,
+          "sinks": {
+            "block_dep": 1
+          },
+          "score": 4,
+          "reasons": [
+            "block_dep"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/Counter.sol",
+      "loc": 14,
+      "sinks_total": 0,
+      "external_or_public_functions": 2,
+      "score": 11,
+      "hot_functions": []
+    }
+  ],
+  "ranked_functions": [
+    {
+      "file": "src/MultiBugVault.sol",
+      "contract": "MultiBugVault",
+      "function": "deposit",
+      "line": 59,
+      "visibility": "external",
+      "sink_count": 4,
+      "sinks": {
+        "share_write": 3,
+        "transfer_token": 1
+      },
+      "score": 38,
+      "reasons": [
+        "direct_entry",
+        "share_write",
+        "transfer_token"
+      ]
+    },
+    {
+      "file": "src/SyntheticVault.sol",
+      "contract": "SyntheticVault",
+      "function": "deposit",
+      "line": 29,
+      "visibility": "external",
+      "sink_count": 3,
+      "sinks": {
+        "external_call": 1,
+        "share_write": 2
+      },
+      "score": 34,
+      "reasons": [
+        "direct_entry",
+        "external_call",
+        "share_write"
+      ]
+    },
+    {
+      "file": "src/SyntheticVault.sol",
+      "contract": "SyntheticVault",
+      "function": "redeem",
+      "line": 47,
+      "visibility": "external",
+      "sink_count": 2,
+      "sinks": {
+        "external_call": 1,
+        "share_write": 1
+      },
+      "score": 26,
+      "reasons": [
+        "direct_entry",
+        "external_call",
+        "share_write"
+      ]
+    },
+    {
+      "file": "src/MultiBugVault.sol",
+      "contract": "MultiBugVault",
+      "function": "claimYield",
+      "line": 84,
+      "visibility": "external",
+      "sink_count": 4,
+      "sinks": {
+        "transfer_token": 1,
+        "block_dep": 3
+      },
+      "score": 23,
+      "reasons": [
+        "direct_entry",
+        "transfer_token",
+        "block_dep"
+      ]
+    },
+    {
+      "file": "src/SyntheticVault.sol",
+      "contract": "MockToken",
+      "function": "mint",
+      "line": 67,
+      "visibility": "external",
+      "sink_count": 2,
+      "sinks": {
+        "balance_write": 1,
+        "supply_write": 1
+      },
+      "score": 22,
+      "reasons": [
+        "direct_entry",
+        "balance_write",
+        "supply_write"
+      ]
+    },
+    {
+      "file": "src/SyntheticVault.sol",
+      "contract": "MockToken",
+      "function": "transfer",
+      "line": 72,
+      "visibility": "external",
+      "sink_count": 2,
+      "sinks": {
+        "balance_write": 2
+      },
+      "score": 22,
+      "reasons": [
+        "direct_entry",
+        "balance_write"
+      ]
+    },
+    {
+      "file": "src/SyntheticVault.sol",
+      "contract": "MockToken",
+      "function": "transferFrom",
+      "line": 83,
+      "visibility": "external",
+      "sink_count": 2,
+      "sinks": {
+        "balance_write": 2
+      },
+      "score": 22,
+      "reasons": [
+        "direct_entry",
+        "balance_write"
+      ]
+    },
+    {
+      "file": "src/SyntheticVault.sol",
+      "contract": "SyntheticVault",
+      "function": "totalAssets",
+      "line": 21,
+      "visibility": "public",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 15,
+      "reasons": [
+        "direct_entry",
+        "external_call"
+      ]
+    },
+    {
+      "file": "src/MultiBugVault.sol",
+      "contract": "MultiBugVault",
+      "function": "withdraw",
+      "line": 74,
+      "visibility": "external",
+      "sink_count": 1,
+      "sinks": {
+        "transfer_token": 1
+      },
+      "score": 14,
+      "reasons": [
+        "direct_entry",
+        "transfer_token"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+      "contract": "AttackInvariants",
+      "function": "assertSupplyExceededBound",
+      "line": 67,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 11,
+      "reasons": [
+        "external_call"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+      "contract": "AttackInvariants",
+      "function": "assertBorrowExceededBound",
+      "line": 74,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 11,
+      "reasons": [
+        "external_call"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+      "contract": "ClassInvariants",
+      "function": "assertAttackerTokenIncreased",
+      "line": 28,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 11,
+      "reasons": [
+        "external_call"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+      "contract": "ClassInvariants",
+      "function": "assertVictimDrained",
+      "line": 37,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 11,
+      "reasons": [
+        "external_call"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+      "contract": "ClassInvariants",
+      "function": "assertSupplyInflated",
+      "line": 59,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 11,
+      "reasons": [
+        "external_call"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+      "contract": "ClassInvariants",
+      "function": "assertPermissionAcquired",
+      "line": 67,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 11,
+      "reasons": [
+        "external_call"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+      "contract": "ClassInvariants",
+      "function": "assertFunctionCallable",
+      "line": 75,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "external_call": 1
+      },
+      "score": 11,
+      "reasons": [
+        "external_call"
+      ]
+    },
+    {
+      "file": "src/MultiBugVault.sol",
+      "contract": "MultiBugVault",
+      "function": "setYield",
+      "line": 52,
+      "visibility": "external",
+      "sink_count": 0,
+      "sinks": {},
+      "score": 8,
+      "reasons": [
+        "direct_entry"
+      ]
+    },
+    {
+      "file": "src/SyntheticVault.sol",
+      "contract": "MockToken",
+      "function": "approve",
+      "line": 78,
+      "visibility": "external",
+      "sink_count": 0,
+      "sinks": {},
+      "score": 8,
+      "reasons": [
+        "direct_entry"
+      ]
+    },
+    {
+      "file": "src/Counter.sol",
+      "contract": "Counter",
+      "function": "setNumber",
+      "line": 7,
+      "visibility": "public",
+      "sink_count": 0,
+      "sinks": {},
+      "score": 5,
+      "reasons": [
+        "direct_entry"
+      ]
+    },
+    {
+      "file": "src/Counter.sol",
+      "contract": "Counter",
+      "function": "increment",
+      "line": 11,
+      "visibility": "public",
+      "sink_count": 0,
+      "sinks": {},
+      "score": 5,
+      "reasons": [
+        "direct_entry"
+      ]
+    },
+    {
+      "file": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+      "contract": "AttackInvariants",
+      "function": "assertSameBlockEntry",
+      "line": 84,
+      "visibility": "internal",
+      "sink_count": 1,
+      "sinks": {
+        "block_dep": 1
+      },
+      "score": 4,
+      "reasons": [
+        "block_dep"
+      ]
+    }
+  ],
+  "coverage_order": [
+    "src/SyntheticVault.sol",
+    "src/MultiBugVault.sol",
+    ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+    ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+    "src/Counter.sol"
+  ]
+}

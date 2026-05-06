@@ -24,6 +24,7 @@ multi-agent splitting (which we measured as a regression).
 | [08-holdout-sweep.md](08-holdout-sweep.md) | First multi-case KG-lift measurement: **N=3, lift = 0**. Honest negative data; budget too tight + N too small. |
 | [09-budget-and-codebase-effects.md](09-budget-and-codebase-effects.md) | **Lift seen** at budget=15 on Fluid DEX (baseline 0 → full v2 3). LAXO full v2 verified the real-world exploit. *Subsequently retracted* — see 10. |
 | [10-fix-rerun-coverage-tracker-wins.md](10-fix-rerun-coverage-tracker-wins.md) | After 3 fixes (leak channel, force-budget, coverage tracker): re-ran Fluid + added Chainlink. **Baseline now also finds 3 findings.** The docs/09 lift was orientation effect, not KG/MCGA. **Coverage tracker is the real load-bearing component**; KG/MCGA value at N=2 is unproven. |
+| [11-harness-evaluation.md](11-harness-evaluation.md) | Current-verifier evaluation protocol. Defines cells, datasets, metrics, and the rule that only `verification_results.exit_code == 0` counts as verified. |
 | [sources.md](sources.md) | All URLs cited across the research. |
 
 ---
@@ -68,6 +69,7 @@ multi-agent splitting (which we measured as a regression).
 | DeFiHackLabs KG indexer + retrieval | ✅ 682 incidents indexed, 6 holdout | [07](07-defihacklabs-kg.md) |
 | KG hard-wired into agent system prompt | ✅ implemented (`HARNESS_KG=1`) | [07](07-defihacklabs-kg.md) |
 | Harness lift on big codebase | ✅ Coverage tracker brings baseline 0 → 3 findings on Fluid DEX. KG/MCGA incremental value unproven at N=2 (3 = 3 with coverage tracker). See [10](10-fix-rerun-coverage-tracker-wins.md) | |
+| Current-verifier evaluation protocol | ✅ added; legacy `verified` arrays without `verification_results` no longer count | [11](11-harness-evaluation.md) |
 | MCGA sink-tagger | ✅ built (`harness/mcga_sinks.py`), wired into recon_pack + agent.py preamble | [05](05-v2-blueprint.md) |
 | Halmos parallel gate | ✅ verify.py gate exists; halmos installed; template at `harness/templates/HalmosProperty.t.sol.tmpl`; smoke test passing | [05](05-v2-blueprint.md) |
 | BCDA/BGA prompt split | ❌ **dropped** (measured regression) | [06](06-experiments.md) |

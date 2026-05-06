@@ -41,6 +41,55 @@ HOLDOUT_TARGETS = [
 ]
 
 
+def benchmark_env(backend: str) -> dict[str, str]:
+    env = os.environ.copy()
+    preserved_harness_env = {
+        k: v for k, v in env.items()
+        if k in {
+            "HARNESS_CODEX_MODEL",
+            "HARNESS_CODEX_SANDBOX",
+            "HARNESS_MODEL",
+        }
+    }
+    for k in list(env):
+        if k.startswith("HARNESS_"):
+            env.pop(k, None)
+    env.update(preserved_harness_env)
+    env["HARNESS_AGENT_BACKEND"] = backend
+    return env
+
+
+def apply_mode_env(env: dict[str, str], mode: str) -> None:
+    """Apply benchmark mode flags after benchmark_env has reset HARNESS_*."""
+    if mode == "baseline":
+        env["HARNESS_RAW_CODEX"] = "1"
+        env["HARNESS_SCORE_ONLY"] = "1"
+        env["HARNESS_NO_COVERAGE"] = "1"
+        env["HARNESS_NO_ATTACK_SURFACE"] = "1"
+    elif mode == "full":
+        env["HARNESS_RECON"] = "1"
+        env["HARNESS_BANK"] = "1"
+        env["HARNESS_INV"] = "1"
+        env["HARNESS_VERIFY"] = "1"
+        env["HARNESS_TRACE2INV"] = "1"
+        env["HARNESS_SLITHER"] = "1"
+        env["HARNESS_MCGA"] = "1"
+    else:
+        raise ValueError(f"unknown mode {mode!r}; expected baseline or full")
+
+
+def prepare_recon(case_dir: Path, case_id: str, mode: str, env: dict[str, str]) -> str:
+    if not env.get("HARNESS_RECON"):
+        return ""
+    recon_out = case_dir / ".harness_recon" / f"{case_id}_{mode}"
+    cmd = [sys.executable, str(REPO / "harness" / "recon_pack.py"), str(case_dir), "--out", str(recon_out)]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=int(env.get("HARNESS_RECON_TIMEOUT_SEC", "1200")))
+    if r.returncode != 0:
+        return f"recon_pack failed: {(r.stdout + r.stderr)[-1000:]}"
+    env["HARNESS_RECON_DIR"] = str(recon_out.resolve())
+    return str(recon_out)
+
+
 def fetch_source(chain: str, addr: str, work: Path) -> dict:
     out = work / "raw"
     out.mkdir(parents=True, exist_ok=True)
@@ -78,15 +127,16 @@ def assemble_case(case_id: str, fetch_result: dict, work: Path) -> Path | None:
 
 
 def run_mode(case_dir: Path, case_id: str, mode: str, budget: int,
-             max_budget_usd: float = 20.0, timeout_sec: int = 5400) -> dict:
-    env = os.environ.copy()
-    if mode == "full":
-        env["HARNESS_KG"] = "1"
-        env["HARNESS_MCGA"] = "1"
-    elif mode == "baseline":
-        env.pop("HARNESS_KG", None); env.pop("HARNESS_MCGA", None)
+             max_budget_usd: float = 20.0, timeout_sec: int = 5400,
+             backend: str = "codex") -> dict:
+    env = benchmark_env(backend)
+    try:
+        apply_mode_env(env, mode)
+    except ValueError as e:
+        return {"_mode": mode, "_agent_backend": backend, "error": str(e)}
     env["HARNESS_MAX_BUDGET_USD"] = str(max_budget_usd)
     env["HARNESS_TIMEOUT_SEC"] = str(timeout_sec)
+    recon_note = prepare_recon(case_dir, case_id, mode, env)
     started = time.time()
     r = subprocess.run(
         [sys.executable, str(REPO / "bench" / "ablation" / "agent.py"),
@@ -101,14 +151,17 @@ def run_mode(case_dir: Path, case_id: str, mode: str, budget: int,
         result = {"_parse_error": True, "stdout_tail": r.stdout[-1500:],
                   "stderr_tail": r.stderr[-1500:]}
     result["_mode"] = mode
+    result["_agent_backend"] = backend
+    if recon_note:
+        result["_recon"] = recon_note
     result["_wall_outer_sec"] = round(wall, 2)
     return result
 
 
 def summarize(rows: list[dict]) -> str:
     out = ["# Holdout Sweep Results", "",
-           "| Case | Mode | Cost | Wall | Findings |",
-           "|---|---|---|---|---|"]
+           "| Case | Mode | Backend | Cost | Wall | Candidates | Verified (current gate) | Notes |",
+           "|---|---|---|---|---|---|---|---|"]
     by_case = {}
     for r in rows:
         c = r["case"]
@@ -120,16 +173,30 @@ def summarize(rows: list[dict]) -> str:
                 continue
             cost = m.get("cost_usd")
             wall = m.get("elapsed_sec")
-            n = len(m.get("hypotheses", []) or [])
+            backend = m.get("_agent_backend") or m.get("mode") or "?"
+            candidates = len(m.get("hypotheses", []) or [])
+            verified = verified_count(m)
+            notes = ""
+            if "verification_results" not in m:
+                notes = "legacy result: no verification_results"
             cs = f"${cost:.3f}" if isinstance(cost, (int, float)) else "?"
             ws = f"{wall:.0f}s" if isinstance(wall, (int, float)) else "?"
-            out.append(f"| {case} | {mode} | {cs} | {ws} | {n} |")
+            out.append(f"| {case} | {mode} | {backend} | {cs} | {ws} | {candidates} | {verified} | {notes} |")
     out.append("")
     # Aggregates
-    base_n = sum(len(m["full"].get("hypotheses", [])) for m in by_case.values()
-                 if "full" in m and m["full"].get("hypotheses"))
-    out.append(f"Total candidate findings (full mode): {base_n}")
+    full_candidates = sum(len(m["full"].get("hypotheses", [])) for m in by_case.values()
+                          if "full" in m and m["full"].get("hypotheses"))
+    full_verified = sum(verified_count(m["full"]) for m in by_case.values() if "full" in m)
+    out.append(f"Total candidate findings (full mode): {full_candidates}")
+    out.append(f"Total verified findings by current gate (full mode): {full_verified}")
     return "\n".join(out)
+
+
+def verified_count(result: dict) -> int:
+    """Count only deterministic verifier passes from current agent output."""
+    if "verification_results" not in result:
+        return 0
+    return sum(1 for vr in result.get("verification_results") or [] if vr.get("exit_code") == 0)
 
 
 def main(argv: list[str]) -> int:
@@ -138,6 +205,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--max-budget-usd", type=float, default=20.0)
     ap.add_argument("--timeout-sec", type=int, default=5400)
     ap.add_argument("--modes", default="baseline,full")
+    ap.add_argument(
+        "--backend",
+        default="codex",
+        choices=["codex", "codex-cli", "claude", "claude-cli", "anthropic", "api", "sdk"],
+        help="agent backend to benchmark; defaults to codex after resetting inherited HARNESS_* flags",
+    )
     ap.add_argument("--only", help="comma-separated case_id substring filter")
     ap.add_argument("--work", default="/tmp/holdout_sweep")
     args = ap.parse_args(argv[1:])
@@ -178,10 +251,12 @@ def main(argv: list[str]) -> int:
             print(f"  running mode={mode}...")
             result = run_mode(case_dir, case_id, mode, args.budget,
                                max_budget_usd=args.max_budget_usd,
-                               timeout_sec=args.timeout_sec)
+                               timeout_sec=args.timeout_sec,
+                               backend=args.backend)
             cost = result.get("cost_usd")
-            n = len(result.get("hypotheses", []) or [])
-            print(f"    cost={cost} findings={n}")
+            candidates = len(result.get("hypotheses", []) or [])
+            verified = verified_count(result)
+            print(f"    cost={cost} candidates={candidates} verified={verified}")
             row = {**result, "case": case_id, "cell_mode": mode}  # cell_mode last so it wins
             rows.append(row)
 

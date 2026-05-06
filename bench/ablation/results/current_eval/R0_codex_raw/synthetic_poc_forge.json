@@ -1,0 +1,20 @@
+{
+  "cell_id": "R0_codex_raw",
+  "case_id": "synthetic_poc_forge",
+  "agent_backend": "codex",
+  "started_at": 1778043967.9141479,
+  "elapsed_sec": 192.8773,
+  "tool_calls": 45,
+  "hypotheses_generated": 3,
+  "findings_verified": 3,
+  "findings_judged_valid": 2,
+  "findings_judged_invalid": 1,
+  "poc_compile_count": 3,
+  "poc_pass_count": 3,
+  "cost_usd_estimate": 0.0,
+  "has_ground_truth": true,
+  "error": "",
+  "notes": [
+    "agent_result=bench/ablation/results/current_eval/R0_codex_raw/synthetic_poc_forge.agent.json"
+  ]
+}

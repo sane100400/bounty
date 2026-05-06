@@ -6,21 +6,19 @@ Two parallel tracks in one workspace:
    PoC-confirmed findings on Immunefi bug bounties and audit
    competitions (Cantina, Sherlock, Code4rena, CodeHawks).
 2. **Harness research** — `harness/` + `bench/ablation/` measure
-   whether harness engineering actually beats raw Claude Opus on
+   whether harness engineering actually beats strict raw-model baselines on
    contamination-resistant smart-contract benchmarks.
 
-> **Model**: Claude Opus 4.7 (1M context) — knowledge cutoff January 2026
+> **Default benchmark backend**: Codex CLI (`codex exec`) with optional
+> Claude/Anthropic paths retained for comparison.
 >
-> **Research summary**: harness *does* beat raw Opus, but the lift comes
-> from a smaller place than we initially thought. The dramatic Fluid DEX
-> baseline-0 result in [docs/09](docs/09-budget-and-codebase-effects.md)
-> was orientation effect — once both modes get an explicit in-scope file
-> inventory ([docs/10](docs/10-fix-rerun-coverage-tracker-wins.md)),
-> baseline matches full v2 (3 = 3). The **coverage tracker is the load-
-> bearing component**, not KG retrieval or MCGA sink tagging. On the
-> LAXO holdout, full v2 still verified the actual real-world exploit
-> as a duplicate of DeFiHackLabs 2026-02 — KG/MCGA's value may show up
-> in *quality* (verified vs candidate), not in candidate count.
+> **Current research summary**: the useful lift is not "the model writes more
+> candidates"; it is that the harness converts candidates into verifier-passing
+> PoCs. In the strict Codex LAXO holdout, raw Codex produced 3 compile-passing
+> candidates but 0 passed the current verifier, while the full harness produced
+> 3 candidates and all 3 passed. See
+> [strict_codex_laxo_report.md](bench/ablation/results/strict_codex_laxo_report.md).
+> The broad claim still needs more holdout cases and manual validity judging.
 
 ---
 
@@ -32,7 +30,7 @@ bounty/
 ├── README.md           ← this file
 ├── scope.md            ← scratchpad for active hunt scopes
 ├── .claude-commands/   ← /web3-hunt, /web3-loop skill sources
-├── docs/               ← 9-doc research archive
+├── docs/               ← research archive + evaluation protocol
 │   ├── README.md            ← research index + TL;DR
 │   ├── 01-research-findings.md
 │   ├── 02-architecture.md   ← Atlantis CRS + MLLA pattern
@@ -42,9 +40,13 @@ bounty/
 │   ├── 06-experiments.md    ← in-house measurements
 │   ├── 07-defihacklabs-kg.md
 │   ├── 08-holdout-sweep.md  ← N=3 null result
+│   ├── 09-budget-and-codebase-effects.md
+│   ├── 10-fix-rerun-coverage-tracker-wins.md
+│   ├── 11-harness-evaluation.md
 │   └── sources.md
 ├── harness/            ← harness components
 │   ├── recon_pack.py        ← pre-LLM static dump
+│   ├── attack_surface.py    ← CPUA ranked file/function coverage plan
 │   ├── mcga_sinks.py        ← MLLA-style sink tagger (16 categories)
 │   ├── verify.py            ← 6-gate Foundry-grounded verifier
 │   ├── kg/                  ← DeFiHackLabs KG
@@ -54,7 +56,7 @@ bounty/
 │   ├── templates/           ← AttackHarness, Invariants, AttackInvariants, Halmos
 │   └── schemas/             ← hypothesis JSON schema
 ├── bench/ablation/     ← agent + holdout sweep
-│   ├── agent.py             ← `claude -p` subprocess agent
+│   ├── agent.py             ← Codex/Claude subprocess agent
 │   ├── agent_prompt.md
 │   ├── run.py               ← 8-cell ablation runner
 │   ├── run_holdout.py       ← post-cutoff DeFiHackLabs sweep
@@ -91,6 +93,57 @@ Skill source: [.claude-commands/web3-hunt.md](.claude-commands/web3-hunt.md), [.
 
 ## Track 2 — harness research
 
+### Why the harness improves performance
+
+The benchmark is intentionally split into two roles:
+
+| Role | What the agent sees | What the scorer does |
+|---|---|---|
+| `baseline` / `R0_codex_raw` | Target source + ordinary Foundry commands only. No recon, no CPUA/MCGA ranking, no invariant helpers, no `verify.py` repair loop, no prior hypotheses. | Runs the same `harness/verify.py` after the agent stops. |
+| `full` / H1 | Target source plus recon, CPUA attack-surface ranking, MCGA sink tags, class-invariant guidance, Slither helpers, and verifier feedback for repair. | Runs the same post-hoc `harness/verify.py` after the agent stops. |
+
+That means the scorer is identical, but generation is different. The measured
+lift is therefore attributed to the harness context and repair loop, not to a
+different judge.
+
+The full harness is built as a conversion pipeline:
+
+1. **Scope compression**: `recon_pack.py` extracts in-scope files, entry points,
+   storage hints, sink-ranked functions, and metadata before the model starts.
+2. **Attack-surface ordering**: `attack_surface.py` ranks files/functions by
+   public entry points, token movement, balance/share writes, oracle reads,
+   LP syncs, external calls, and arithmetic sinks. This keeps the model from
+   spending the budget on low-signal files first.
+3. **Sink semantics**: `mcga_sinks.py` labels high-risk primitives such as
+   `transfer_token`, `balance_write`, `share_write`, `oracle_read`, `lp_sync`,
+   `unchecked_arith`, `delegatecall`, and `external_call`, then injects the
+   highest-density functions into the prompt.
+4. **Structured hypothesis contract**: each candidate must be written as a
+   schema-checked JSON file with target, state setup, attack steps, invariant
+   class, and PoC path. This makes failures machine-actionable instead of vague.
+5. **Invariant-backed PoC template**: `ClassInvariants` / `AttackInvariants`
+   emit `InvariantEvidence`, so the verifier can prove that the intended
+   state/economic delta actually happened. A test that merely passes is not
+   enough.
+6. **Verifier repair loop**: `verify.py` returns the exact failing gate
+   (`schema`, `compile`, `execute`, `state_delta`, `econ`, `dup`, `halmos`).
+   The full harness can repair against that feedback during generation; the
+   strict baseline cannot.
+7. **Post-hoc scoring**: every benchmark row is scored again after the run using
+   only `verification_results.exit_code == 0`, so agent prose and self-reported
+   success do not count.
+
+The LAXO strict Codex result shows the mechanism clearly:
+
+| Mode | Candidates | Compile-pass | Verified | Main failure mode |
+|---|---:|---:|---:|---|
+| strict baseline | 3 | 3 | 0 | PoCs compiled, but did not emit verifier-consumable `InvariantEvidence` |
+| full harness | 3 | 3 | 3 | All candidates satisfied the current verifier |
+
+So the current evidence supports the narrow claim: on this holdout, the harness
+improved candidate-to-verified conversion from `0/3` to `3/3`. It does not yet
+prove broad bounty-valid recall; that requires manual judging and more cases.
+
 ### One-time setup
 ```bash
 # Foundry + halmos
@@ -104,28 +157,43 @@ python3 harness/kg/build_index.py
 
 ### Run the agent on your own Foundry project
 ```bash
-# Baseline (no KG / no MCGA)
+# Default single-agent run. Defaults to Codex CLI.
 python3 bench/ablation/agent.py poc-forge --case-id my_case --budget 3
 
-# Full v2 stack (KG retrieval + MCGA sink injection hard-wired)
-HARNESS_KG=1 HARNESS_MCGA=1 \
+# Harness-assisted run with verifier repair and sink guidance.
+HARNESS_VERIFY=1 HARNESS_INV=1 HARNESS_SLITHER=1 HARNESS_MCGA=1 \
+  python3 bench/ablation/agent.py poc-forge --case-id my_case --budget 3
+
+# Force Claude backend if desired
+HARNESS_AGENT_BACKEND=claude \
   python3 bench/ablation/agent.py poc-forge --case-id my_case --budget 3
 ```
 
-The agent is a `claude -p` subprocess (uses your Claude Code CLI auth —
-no API key needed) restricted to Read / Grep / Bash / Edit / Glob /
-Write. It writes hypotheses to `harness/hypotheses/<case_id>-N.json`,
+The default agent is a `codex exec` subprocess (uses your Codex CLI auth or
+OpenAI API setup, not Claude tokens). `HARNESS_AGENT_BACKEND=claude` keeps
+the old Claude Code path. It writes hypotheses to
+`harness/hypotheses/_runs/<case_id>/<case_id>-N.json`,
 PoCs to `poc-forge/test/AttackHarness_<id>.t.sol`, and runs
 `harness/verify.py` for the 6-gate verification loop.
 
+For strict baseline/full benchmark comparisons, use `run.py`, `run_holdout.py`,
+or `run_contest_sweep.py`; those scripts reset inherited `HARNESS_*` flags and
+apply the score-only baseline/full-harness mode split consistently.
+
 ### Run the post-cutoff holdout sweep
 ```bash
-python3 bench/ablation/run_holdout.py --budget 3
+python3 bench/ablation/run_holdout.py --backend codex --budget 3
 # Output: bench/ablation/results/holdout_sweep.{json,md}
 ```
 
+Benchmark runners default to `--backend codex` and reset inherited `HARNESS_*`
+flags before applying each cell/mode. The `baseline`/`R0_codex_raw` path is a
+strict score-only prompt: the agent gets source + Foundry only, while
+`harness/verify.py` is used only after the run for scoring. The `full`/H1 path
+gets recon, invariant guidance, verifier repair feedback, Slither, and MCGA.
+
 ### Verifier gates (`harness/verify.py`)
-1. **compile** — `forge build`
+1. **compile** — PoC-name checks + targeted `forge build <poc>`
 2. **execute** — `forge test --match-test testPoC_<id> -vvvv`
 3. **state_delta** — invariant assertion fired in correct direction
 4. **econ** — gas cost vs claimed profit at realistic gas price
@@ -141,15 +209,17 @@ to a per-case Foundry root (used by SCONE-mode runs after `scaffold_forge.py`).
 
 | Component | Status |
 |---|---|
-| Verifier loop (6-gate, Foundry) | ✅ working — synthetic vault PoC passes all 6 |
-| `claude -p` subprocess agent | ✅ working ($0.43/case smoke) |
+| Verifier loop (schema + 6-gate, Foundry) | ✅ working — synthetic vault PoC passes strict PoC-file, evidence, delta gates |
+| Codex CLI subprocess agent | ✅ working — strict LAXO benchmark completed |
+| `claude -p` subprocess agent | ✅ working ($0.43/case smoke), now optional |
 | Source-fetcher (Sourcify → forge clone) | ✅ working (USDC, LAXO confirmed) |
 | SCONE Foundry scaffolder | ✅ working (LAXO src/ → buildable Foundry project) |
 | DeFiHackLabs KG (682 incidents indexed) | ✅ working, 6 post-cutoff holdout |
 | KG hard-wired into agent system prompt | ✅ working (`HARNESS_KG=1`) |
 | MCGA sink tagger (16 categories) | ✅ working — correctly flags LAXO `_transfer` lp_sync |
 | Halmos parallel gate | ✅ template + smoke test passing |
-| Coverage-tracker lift (N=2) | ✅ Brings baseline 0 → 3 findings on 77-file Fluid DEX. Dominant lift component. |
+| Coverage-tracker lift (N=2) | ✅ Brings baseline 0 → 3 findings on 77-file Fluid DEX. Dominant lift component; now upgraded with CPUA function ranking. |
+| Strict Codex LAXO lift | ✅ baseline 3 compile / 0 verified vs full harness 3 compile / 3 verified |
 | KG/MCGA *additional* lift | 🟡 At N=2 (Fluid + Chainlink), no measurable contribution above coverage tracker. May matter for verified-finding quality, not candidate count. |
 | BCDA/BGA prompt split | ❌ dropped — measured regression |
 

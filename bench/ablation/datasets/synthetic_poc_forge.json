@@ -1,0 +1,24 @@
+[
+  {
+    "case_id": "synthetic_poc_forge",
+    "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+    "budget": 3,
+    "ground_truth": [
+      {
+        "file": "src/SyntheticVault.sol",
+        "lines": "29-45",
+        "vuln_class": "donation_share_inflation",
+        "severity": "test-positive-control",
+        "notes": "ERC4626-style first-depositor donation/share inflation positive control."
+      },
+      {
+        "file": "src/MultiBugVault.sol",
+        "lines": "59-71",
+        "vuln_class": "donation_share_inflation",
+        "severity": "test-positive-control",
+        "notes": "Multi-bug synthetic target. deposit(uint256) is the intended easy positive control."
+      }
+    ],
+    "notes": "Cheap local positive-control benchmark. Use to verify harness plumbing, not as external validity evidence."
+  }
+]

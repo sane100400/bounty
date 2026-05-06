@@ -13,16 +13,16 @@ backed by a Foundry test that compiles, executes, and demonstrates economic
 impact. Hypotheses without a passing PoC do NOT count.
 
 ## Budget
-- Iterations: ≤ 5 retries per hypothesis (matches A1)
-- Tool calls per hypothesis: ≤ 50 (soft budget, escalate if blocking)
-- Stop when you have 3 verified findings, or when ≤2 candidate hypotheses remain
-  after triage, or budget exhausted.
+The concrete per-run budget is provided in the user message and overrides any
+generic defaults. In smoke cells, attempt exactly one high-confidence candidate:
+write one JSON, write one PoC, verify/repair once, then stop.
 
 ## Inputs available
 
 ### {{IF HARNESS_RECON}}
-A `recon-pack/` directory has been precomputed for this target. Read these
-files FIRST before opening any source:
+A recon pack has been precomputed for this target. Its path and compact
+contents are provided in the user message. Read these files FIRST before
+opening any source:
 - `inscope.json` — file list with LOC. Plan coverage from this.
 - `storage.json` — per-contract storage layout. Use to spot collisions, packing.
 - `entry_points.json` — externally-callable functions per contract. Attack surface.
@@ -107,22 +107,19 @@ explosion is bounded — symbolic proof beats fuzzing for those cases.
    to materialize verified source from Sourcify (fallback Etherscan if
    `ETHERSCAN_API_KEY` set). Then proceed with `out_dir` as project root.
    {{IF HARNESS_KG}}
-   *KG retrieval:* Collect the set of external interfaces this protocol
-   imports (e.g. `IERC20`, `IUniswapV2Pair`, `IFlashLoan`) and run:
-   ```bash
-   echo '{"interfaces":["IERC20","IUniswapV2Pair", ...]}' \
-     | python3 harness/kg/retrieve.py --top-k 5
-   ```
-   Read each returned `file:` (a Foundry PoC of a past incident with the
-   same external surface). Treat these as *candidate hypothesis seeds*,
-   NOT as ground truth — your job is to verify or rule out each pattern
-   against the current target. Cite the incident `id` in your hypothesis
-   `rationale`.
+   *KG retrieval:* Relevant train-set incident summaries are already
+   hard-injected in the user message. Do not browse the raw DeFiHackLabs
+   corpus or old benchmark outputs. Treat injected incidents as candidate
+   hypothesis seeds, NOT as ground truth, and cite the incident `id` in your
+   hypothesis `rationale`.
    {{ENDIF}}
 2. **Hypothesize**: For each promising spot, write a `hypotheses/<id>.json`
    following the schema. Pick `class_invariant` from the libraries above.
 3. **PoC**: Draft `poc-forge/test/AttackHarness_<id>.t.sol` using the template.
-   ATTACK_BODY is the only complex part — the oracle is one library call.
+   ATTACK_BODY is the only complex part — the oracle is one `ClassInvariants`
+   call. Standard oracles emit `InvariantEvidence`; custom assertions must use
+   `assertCustomInvariant(...)` so `verify.py` can prove the intended class
+   invariant was actually checked.
 4. **Verify**: {{IF HARNESS_VERIFY}}Run `harness/verify.py <hypothesis>`. Read
    the JSON result. If exit ≠ 0, the feedback says exactly which gate failed
    (compile / execute / state_delta / econ / dup / halmos). Fix and retry,
@@ -136,6 +133,11 @@ explosion is bounded — symbolic proof beats fuzzing for those cases.
 - Reporting a "finding" without a passing PoC.
 - Claiming economic impact without showing wei-level state delta.
 - Including code from sources you cannot cite (potential training-data leak).
+- In ERC-4337 account/paymaster code, treating `validationData == 1`
+  (invalid signature) as a successful exploit path. A valid PoC cannot profit
+  by assuming EntryPoint or a mocked caller ignores invalid validation data.
+- Replacing canonical protocol callers such as EntryPoint with `vm.etch` to
+  create behavior the real protocol would not allow.
 - {{IF HARNESS_SLITHER}}Reporting a finding whose `slither_dup_check` returned
   `is_likely_duplicate=true` without explaining the additional novel angle.{{ENDIF}}
 

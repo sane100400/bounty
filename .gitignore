@@ -62,6 +62,9 @@ poc-forge/lib/
 harness/hypotheses/
 harness/last_verify.json
 harness/__pycache__/
+poc-forge/.harness_runs/
+poc-forge/.harness_slither_cache/
+poc-forge/test/AttackHarness_synthetic_poc_forge_*.t.sol
 
 # ─── Harness KG (cloned + generated) ─────────────────────────────
 harness/kg/index.train.json

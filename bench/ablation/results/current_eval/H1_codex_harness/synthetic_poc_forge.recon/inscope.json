@@ -1,0 +1,31 @@
+{
+  "project_dir": "/home/sane100400/projects/bounty/poc-forge",
+  "files": [
+    {
+      "path": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/AttackInvariants.sol",
+      "loc": 116,
+      "sloc": 61
+    },
+    {
+      "path": ".harness_runs/R0_codex_raw/synthetic_poc_forge/_runtime/harness/templates/Invariants.sol",
+      "loc": 85,
+      "sloc": 68
+    },
+    {
+      "path": "src/Counter.sol",
+      "loc": 14,
+      "sloc": 10
+    },
+    {
+      "path": "src/MultiBugVault.sol",
+      "loc": 105,
+      "sloc": 63
+    },
+    {
+      "path": "src/SyntheticVault.sol",
+      "loc": 91,
+      "sloc": 70
+    }
+  ],
+  "total": 5
+}

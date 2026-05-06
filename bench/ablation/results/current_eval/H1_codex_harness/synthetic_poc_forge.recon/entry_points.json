@@ -1,0 +1,119 @@
+{
+  "SyntheticVault": [
+    {
+      "name": "deposit",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "source_file": "src/SyntheticVault.sol"
+    },
+    {
+      "name": "redeem",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "source_file": "src/SyntheticVault.sol"
+    }
+  ],
+  "MockToken": [
+    {
+      "name": "approve",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "address",
+        "uint256"
+      ],
+      "source_file": "src/SyntheticVault.sol"
+    },
+    {
+      "name": "mint",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "address",
+        "uint256"
+      ],
+      "source_file": "src/SyntheticVault.sol"
+    },
+    {
+      "name": "transfer",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "address",
+        "uint256"
+      ],
+      "source_file": "src/SyntheticVault.sol"
+    },
+    {
+      "name": "transferFrom",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "address",
+        "address",
+        "uint256"
+      ],
+      "source_file": "src/SyntheticVault.sol"
+    }
+  ],
+  "MultiBugVault": [
+    {
+      "name": "claimYield",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [],
+      "source_file": "src/MultiBugVault.sol"
+    },
+    {
+      "name": "deposit",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "source_file": "src/MultiBugVault.sol"
+    },
+    {
+      "name": "setYield",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "source_file": "src/MultiBugVault.sol"
+    },
+    {
+      "name": "withdraw",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "source_file": "src/MultiBugVault.sol"
+    }
+  ],
+  "Counter": [
+    {
+      "name": "increment",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [],
+      "source_file": "src/Counter.sol"
+    },
+    {
+      "name": "setNumber",
+      "type": "function",
+      "stateMutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "source_file": "src/Counter.sol"
+    }
+  ]
+}

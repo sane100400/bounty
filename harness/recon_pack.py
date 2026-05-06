@@ -12,6 +12,7 @@ Outputs (all under <pack_dir>/):
   storage.json       — per-contract storage layout (forge inspect)
   perms.json         — modifier matrix + auth state-vars (vars-and-auth)
   entry_points.json  — externally callable state-changing fns (entry-points)
+  attack_surface.json — ranked files/functions for coverage and tracing (CPUA)
   function_summary.json — per-function inputs/outputs/modifiers/state-vars
   slither.json       — standard slither findings (raw)
   diff.patch         — git diff vs --base-ref (post-audit changes)
@@ -38,6 +39,68 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+SKIP_DIR_PARTS = {
+    ".git",
+    ".recon",
+    "cache",
+    "lib",
+    "node_modules",
+    "out",
+    "script",
+    "scripts",
+    "test",
+    "tests",
+}
+
+
+def is_target_sol_path(path: str | Path) -> bool:
+    """Return true for target source files, false for tests/scripts/deps."""
+    p = Path(path)
+    parts = set(p.parts[:-1])
+    if parts & SKIP_DIR_PARTS:
+        return False
+    name = p.name
+    if name.endswith((".t.sol", ".s.sol")):
+        return False
+    s = str(p)
+    if any(x in s for x in ("forge-std/", "@openzeppelin/", "solmate/", "@uniswap/")):
+        return False
+    return name.endswith(".sol")
+
+
+def source_path_exists(project: Path, source_path: str) -> bool:
+    return resolve_source_path(project, source_path) is not None
+
+
+def resolve_source_path(project: Path, source_path: str) -> str | None:
+    if not source_path:
+        return None
+    p = Path(source_path)
+    if p.is_absolute():
+        return str(p) if p.exists() else None
+    for candidate in (project / p, project / "src" / p, project / "contracts" / p):
+        if candidate.exists():
+            return str(candidate.relative_to(project))
+    return None
+
+
+def concrete_contract_kind(artifact: dict, contract_name: str) -> str:
+    nodes = (artifact.get("ast") or {}).get("nodes") or []
+    for node in nodes:
+        if node.get("nodeType") != "ContractDefinition":
+            continue
+        if node.get("name") == contract_name:
+            if node.get("abstract"):
+                return "abstract"
+            return node.get("contractKind") or ""
+    if not nodes:
+        bytecode = ((artifact.get("bytecode") or {}).get("object") or "").strip()
+        deployed = ((artifact.get("deployedBytecode") or {}).get("object") or "").strip()
+        if bytecode not in ("", "0x") or deployed not in ("", "0x"):
+            return "contract"
+    return ""
 
 
 def run(cmd: list[str], cwd: Path | None = None, timeout: int = 300, mem_mb: int = 4096) -> tuple[int, str, str]:
@@ -71,8 +134,10 @@ class Step:
 
 
 def step_inscope(project: Path, out_dir: Path) -> Step:
-    sols = sorted(p for p in project.rglob("*.sol")
-                  if "node_modules" not in p.parts and "lib/" not in str(p))
+    sols = sorted(
+        p for p in project.rglob("*.sol")
+        if is_target_sol_path(p.relative_to(project))
+    )
     files = []
     for p in sols:
         try:
@@ -250,6 +315,15 @@ def step_storage_layouts(project: Path, out_dir: Path) -> Step:
                 data = json.loads(art.read_text())
             except Exception:
                 continue
+            source_unit = art.relative_to(out_dir_artifacts).parts[0] if art.is_relative_to(out_dir_artifacts) else ""
+            source_path = ((data.get("ast") or {}).get("absolutePath") or source_unit).strip()
+            resolved_source_path = resolve_source_path(project, source_path)
+            if not resolved_source_path:
+                continue
+            if not is_target_sol_path(resolved_source_path):
+                continue
+            if concrete_contract_kind(data, art.stem) != "contract":
+                continue
             sl = data.get("storageLayout")
             if sl and isinstance(sl, dict) and sl.get("storage"):
                 cname = art.stem
@@ -325,6 +399,23 @@ def step_mcga_sinks(project: Path, out_dir: Path) -> Step:
         return Step("mcga_sinks", ok=False, detail=f"{type(e).__name__}: {e}")
 
 
+def step_attack_surface(project: Path, out_dir: Path) -> Step:
+    """CPUA-style ranked reading/tracing plan from MCGA sink tags."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from attack_surface import build  # type: ignore
+        result = build(project)
+        (out_dir / "attack_surface.json").write_text(json.dumps(result, indent=2))
+        return Step(
+            "attack_surface",
+            ok=True,
+            detail=f"{len(result['ranked_files'])} files, "
+                   f"{len(result['ranked_functions'])} functions ranked",
+        )
+    except Exception as e:
+        return Step("attack_surface", ok=False, detail=f"{type(e).__name__}: {e}")
+
+
 def step_entry_points_forge(project: Path, out_dir: Path) -> Step:
     """
     Extract externally-callable functions per contract via `forge inspect <c> abi`.
@@ -342,6 +433,15 @@ def step_entry_points_forge(project: Path, out_dir: Path) -> Step:
             data = json.loads(art.read_text())
         except Exception:
             continue
+        source_unit = art.relative_to(artifacts).parts[0] if art.is_relative_to(artifacts) else ""
+        source_path = ((data.get("ast") or {}).get("absolutePath") or source_unit).strip()
+        resolved_source_path = resolve_source_path(project, source_path)
+        if not resolved_source_path:
+            continue
+        if not is_target_sol_path(resolved_source_path):
+            continue
+        if concrete_contract_kind(data, art.stem) != "contract":
+            continue
         abi = data.get("abi") or []
         funcs = [
             {
@@ -349,9 +449,16 @@ def step_entry_points_forge(project: Path, out_dir: Path) -> Step:
                 "type": item.get("type"),
                 "stateMutability": item.get("stateMutability"),
                 "inputs": [i.get("type") for i in (item.get("inputs") or [])],
+                "source_file": resolved_source_path,
             }
             for item in abi
-            if item.get("type") in ("function", "constructor", "fallback", "receive")
+            if (
+                item.get("type") in ("fallback", "receive")
+                or (
+                    item.get("type") == "function"
+                    and item.get("stateMutability") in ("nonpayable", "payable")
+                )
+            )
         ]
         if funcs:
             entries[art.stem] = funcs
@@ -383,6 +490,7 @@ def main(argv: list[str]) -> int:
     steps.append(step_storage_layouts(project, out_dir))      # forge build — also produces ABI artifacts
     steps.append(step_entry_points_forge(project, out_dir))   # ABI → external/public funcs (no slither)
     steps.append(step_mcga_sinks(project, out_dir))           # MLLA MCGA — sink-tagged attack surface
+    steps.append(step_attack_surface(project, out_dir))       # CPUA — ranked coverage/tracing plan
     steps.append(step_diff(project, out_dir, args.base_ref))
 
     # Layer 2 (opt-in legacy bulk slither pass — XINT-style on-demand is preferred)

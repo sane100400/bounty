@@ -1,0 +1,21 @@
+{
+  "cell_id": "H1_codex_harness",
+  "case_id": "synthetic_poc_forge",
+  "agent_backend": "codex",
+  "started_at": 1778044169.0121481,
+  "elapsed_sec": 230.7154,
+  "tool_calls": 50,
+  "hypotheses_generated": 3,
+  "findings_verified": 3,
+  "findings_judged_valid": 2,
+  "findings_judged_invalid": 1,
+  "poc_compile_count": 3,
+  "poc_pass_count": 3,
+  "cost_usd_estimate": 0.0,
+  "has_ground_truth": true,
+  "error": "",
+  "notes": [
+    "recon_pack: bench/ablation/results/current_eval/H1_codex_harness/synthetic_poc_forge.recon",
+    "agent_result=bench/ablation/results/current_eval/H1_codex_harness/synthetic_poc_forge.agent.json"
+  ]
+}

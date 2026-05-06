@@ -57,10 +57,38 @@ COMPILED = {k: [re.compile(p) for p in pats] for k, pats in SINK_PATTERNS.items(
 
 # Function header regex — captures `function NAME(...) visibility ...`
 FUNC_HDR = re.compile(
-    r"function\s+(?P<name>\w+)\s*\(([^)]*)\)\s*(?P<rest>[^{]*)\{",
+    r"function\s+(?P<name>\w+)\s*\(([^)]*)\)\s*(?P<rest>[^;{]*)\{",
     re.MULTILINE,
 )
-CONTRACT_HDR = re.compile(r"\b(?:contract|library|abstract\s+contract)\s+(\w+)")
+CONTRACT_HDR = re.compile(r"\b(?:interface|contract|library|abstract\s+contract)\s+(\w+)")
+
+SKIP_DIR_PARTS = {
+    ".git",
+    ".recon",
+    "cache",
+    "lib",
+    "node_modules",
+    "out",
+    "script",
+    "scripts",
+    "test",
+    "tests",
+}
+
+
+def _is_target_source(path: Path, project_root: Path) -> bool:
+    try:
+        rel = path.relative_to(project_root)
+    except ValueError:
+        rel = path
+    if set(rel.parts[:-1]) & SKIP_DIR_PARTS:
+        return False
+    if rel.name.endswith((".t.sol", ".s.sol")):
+        return False
+    s = str(rel)
+    if any(x in s for x in ("forge-std/", "@openzeppelin/", "solmate/", "@uniswap/")):
+        return False
+    return rel.name.endswith(".sol")
 
 
 def _iter_func_bodies(text: str):
@@ -132,10 +160,7 @@ def tag_file(path: Path, project_root: Path) -> dict:
 def build(project: Path) -> dict:
     files = []
     for p in project.rglob("*.sol"):
-        s = str(p)
-        if any(x in s for x in ("/lib/", "/out/", "/cache/", "/node_modules/", "/.recon/")):
-            continue
-        if p.name.endswith(".t.sol"):  # test files: skip
+        if not _is_target_source(p, project):
             continue
         files.append(tag_file(p, project))
 

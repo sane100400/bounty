@@ -9,6 +9,23 @@
       "type": "string",
       "description": "Stable slug, e.g. 'rentry-vault-deposit-001'. Used as test name and filename."
     },
+    "mode": {
+      "type": "string",
+      "enum": ["audit_competition", "immunefi_bounty", "research"],
+      "description": "Controls duplicate handling and severity assumptions. Immunefi-style mode fails likely-static-duplicate findings."
+    },
+    "forge_root": {
+      "type": "string",
+      "description": "Optional Foundry project root. Defaults to repository poc-forge/."
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "Original audited source root used for duplicate/static-analysis queries."
+    },
+    "poc_path": {
+      "type": "string",
+      "description": "Optional path to AttackHarness_<id>.t.sol. Relative paths are resolved from forge_root first, then repo root."
+    },
     "vuln_class": {
       "type": "string",
       "enum": [
@@ -42,7 +59,7 @@
       "description": "Knowdit InitialState — translated to Foundry setUp(). Concrete addresses, balances, deployments.",
       "properties": {
         "fork": {
-          "type": "object",
+          "type": ["object", "null"],
           "properties": {
             "chain": { "type": "string", "default": "mainnet" },
             "block": { "type": "integer" },
@@ -116,7 +133,23 @@
         },
         "min_profit_wei": {
           "type": "string",
-          "description": "Threshold for econ-check gate. Default 1e16 (0.01 ETH) for bounty-grade."
+          "description": "Legacy threshold for econ-check gate. Prefer profit_min_raw for ERC20 or non-native assets."
+        },
+        "profit_min_raw": {
+          "type": "string",
+          "description": "Minimum actual invariant delta in raw asset units. verify.py compares this against emitted InvariantEvidence.delta."
+        },
+        "profit_asset": {
+          "type": "string",
+          "description": "ETH, NATIVE, or token address/symbol for the profit/loss asset."
+        },
+        "profit_token_decimals": {
+          "type": "integer",
+          "description": "Decimals for ERC20 profit_asset when profit_token_price_wei is supplied."
+        },
+        "profit_token_price_wei": {
+          "type": "string",
+          "description": "Optional token price in wei per whole token. Enables gas-vs-profit comparison for ERC20 deltas."
         }
       }
     },
@@ -137,6 +170,10 @@
       "type": "array",
       "description": "External assumptions: 'attacker has 10 ETH', 'oracle reports stale price', etc.",
       "items": { "type": "string" }
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Short explanation tying code path, exploitability, impact, and any KG seed together."
     },
     "triage": {
       "type": "object",

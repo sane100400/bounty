@@ -102,7 +102,8 @@ def slither_dup_check(project: str | Path, file: str, lines: str) -> dict:
         return {"ok": False, "error": "slither did not produce findings.json"}
 
     try:
-        a, b = (int(x) for x in (lines.split("-") + [lines])[:2])
+        cleaned = lines.upper().replace("L", "").replace(" ", "")
+        a, b = (int(x) for x in (cleaned.split("-") + [cleaned])[:2])
     except ValueError:
         return {"ok": False, "error": f"bad lines spec: {lines!r}"}
 
